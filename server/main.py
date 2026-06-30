@@ -1363,23 +1363,24 @@ def _migrate_legacy_brain():
         new = _default_brain_dir()
         if new.is_dir() and any(new.iterdir()):
             return   # brain mặc định đã có dữ liệu → khỏi migrate
-        for old in (Path(BRAIN_PATH), PROJECT_ROOT / "Brain Default", PROJECT_ROOT / "brain"):
+        for cand in (Path(BRAIN_PATH), PROJECT_ROOT / "Brain Default", PROJECT_ROOT / "brain"):
             try:
+                # Nếu nguồn cũ CHỨA sẵn 'Brain Default' con (vd brain/Brain Default do user gom tay)
+                # → lấy đúng folder con đó để KHÔNG bị lồng brains/Brain Default/Brain Default.
+                inner = cand / "Brain Default"
+                old = inner if (inner.is_dir() and any(inner.iterdir())) else cand
                 if old.resolve() == new.resolve():
                     continue
                 if old.is_dir() and any(old.iterdir()):
-                    new.parent.mkdir(parents=True, exist_ok=True)
-                    if new.exists():
-                        for item in old.iterdir():
-                            dst = new / item.name
-                            if not dst.exists():
-                                shutil.move(str(item), str(dst))
-                    else:
-                        shutil.move(str(old), str(new))
-                    print(f"[brain migrate] {old} → {new}", file=__import__('sys').stderr)
+                    new.mkdir(parents=True, exist_ok=True)
+                    for item in old.iterdir():
+                        dst = new / item.name
+                        if not dst.exists():
+                            shutil.move(str(item), str(dst))   # gộp, KHÔNG ghi đè cái đã có
+                    print(f"[brain migrate] {old} -> {new}", file=__import__('sys').stderr)
                     return
             except Exception as e:
-                print(f"[brain migrate] {old}: {e}", file=__import__('sys').stderr)
+                print(f"[brain migrate] {cand}: {e}", file=__import__('sys').stderr)
     except Exception as e:
         print(f"[brain migrate] {e}", file=__import__('sys').stderr)
 
