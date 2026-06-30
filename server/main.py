@@ -274,12 +274,11 @@ async def stop():
 # Auth — 1 tài khoản admin (đặt lần đầu để chặn người lạ khi lên VPS)
 # ============================================================
 def _session_cookie(resp, token, request=None):
-    # secure=True khi truy cập qua HTTPS (Hostinger *.hstgr.cloud / Cloudflare tunnel) → cookie không
-    # đi cleartext. Truy cập HTTP thuần (http://ip:7777) thì không bật để vẫn đăng nhập được.
-    secure = False
-    if request is not None:
-        xfp = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        secure = xfp == "https" or request.url.scheme == "https"
+    # KHÔNG tự suy Secure từ X-Forwarded-Proto: nhiều proxy (vd Hostinger port-path http://host/PORT/)
+    # phục vụ HTTP → cookie Secure sẽ KHÔNG được trình duyệt gửi lại → KẸT vòng đăng nhập (đăng nhập/
+    # tạo tài khoản xong vẫn bị hỏi lại từ đầu). Mặc định TẮT Secure để chạy được cả HTTP lẫn HTTPS.
+    # Chỉ bật khi bạn CHẮC CHẮN HTTPS đầu-cuối: đặt env JARVIS_SECURE_COOKIE=1.
+    secure = os.getenv("JARVIS_SECURE_COOKIE", "").strip().lower() in ("1", "true", "yes", "on")
     resp.set_cookie("jarvis_session", token, httponly=True, samesite="lax",
                     secure=secure, max_age=30 * 86400, path="/")
     return resp
