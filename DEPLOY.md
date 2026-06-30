@@ -108,9 +108,7 @@ Dừng bằng `stop-jarvis.bat`. Mở http://localhost:7777
 
 ## 🔄 Cập nhật khi có code mới
 
-Repo là **private** (`github.com/blogminhquy/jarvis-os`). Để `git clone`/`pull` trên VPS: khi git
-hỏi mật khẩu, dán **Personal Access Token**; hoặc thêm SSH deploy key rồi clone qua
-`git@github.com:blogminhquy/jarvis-os.git`.
+Repo & image GHCR đều **Public** → `git clone`/`pull` và `docker pull` không cần đăng nhập.
 
 Mỗi khi bạn push code mới, trên VPS chỉ cần:
 

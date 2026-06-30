@@ -40,9 +40,10 @@ Brain Default/Jarvis/automations.json
 # Skill bị tắt (chuyển vào .disabled khi tắt) — trạng thái cục bộ, không version
 **/.claude/skills/.disabled/
 
-# File rác ở gốc (leftover di chuyển folder)
+# File rác / script cá nhân ở gốc (không thuộc sản phẩm public)
 /agents
 /workflows
+parse_ads*.ps1
 
 # OS
 .DS_Store
