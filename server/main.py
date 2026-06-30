@@ -377,7 +377,7 @@ async def auth_disable():
 # Providers — nhà cung cấp model. kind=cli (qua Claude Code, đủ MCP) | api (gọi thẳng, chat thuần)
 # ============================================================
 PROVIDER_DEFS = [   # thứ tự = thứ tự hiển thị card ở trang Models
-    {"id": "anthropic-cli", "label": "Anthropic (Claude Code)", "kind": "cli", "key_field": None,               "catalog_key": "claude",
+    {"id": "anthropic-cli", "label": "Anthropic OAuth (Claude Code)", "kind": "cli", "key_field": None,          "catalog_key": "claude",
      "default_models": ["opus", "sonnet", "haiku", "fable"]},
     {"id": "openai-oauth",  "label": "OpenAI OAuth (ChatGPT)",  "kind": "oauth", "key_field": None,             "catalog_key": "openai-oauth",
      "default_models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"]},

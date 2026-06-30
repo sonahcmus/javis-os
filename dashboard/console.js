@@ -642,14 +642,23 @@
     } else {
       st.className = "prov-status";
       st.textContent = d.error ? "○ " + esc(d.error) : "○ Chưa đăng nhập";
-      act.innerHTML = `<button class="gcard-btn" id="cliLogin">Đăng nhập Claude</button> <span id="cliMsg" class="gcard-meta" style="margin-left:10px;flex:1"></span>`;
+      act.innerHTML = `
+        <button class="gcard-btn" id="cliLogin">Đăng nhập Claude</button>
+        <button class="gcard-btn" id="cliRecheck" style="background:transparent;opacity:.75">↻ Kiểm tra lại</button>
+        <span id="cliMsg" class="gcard-meta" style="margin-left:10px;flex:1"></span>
+        <div class="prov-note" style="margin-top:8px;line-height:1.6">
+          💻 <b>Trên VPS/server</b> (không có màn hình) nút trên KHÔNG mở được trình duyệt — hãy mở
+          <b>App terminal</b> chạy: <code>claude auth login --claudeai</code> → mở link → dán code →
+          rồi bấm <b>↻ Kiểm tra lại</b>.
+        </div>`;
       el.querySelector("#cliLogin").onclick = () => startClaudeLogin(el);
+      el.querySelector("#cliRecheck").onclick = () => refreshClaudeCard(el);
     }
   }
 
   async function startClaudeLogin(el) {
     const msg = el.querySelector("#cliMsg");
-    if (msg) msg.textContent = "Đang mở trình duyệt đăng nhập…";
+    if (msg) msg.textContent = "Đang mở trình duyệt… (VPS không màn hình thì dùng terminal: claude auth login --claudeai)";
     try { await fetch("/claude/login", { method: "POST" }); } catch (e) {}
     const t0 = Date.now();
     const poll = async () => {
