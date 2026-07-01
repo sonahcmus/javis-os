@@ -245,14 +245,21 @@
             </div>
 
             <div class="qs-block">
-              <div class="popover-label">TÊN MIỀN RIÊNG (HTTPS)</div>
-              <div class="opt-sub" style="margin:4px 0 6px">Trỏ tên miền vào Jarvis, tự động có HTTPS. Chỉ chạy khi deploy Docker trên VPS (mở cổng 80/443).</div>
-              <input id="setDomain" placeholder="vd: jarvis.tencuaban.com" style="width:100%">
-              <div class="set-actions" style="margin-top:6px">
+              <div class="popover-label">TÊN MIỀN & SSL</div>
+              <div class="opt-sub" style="margin:4px 0 8px">Trỏ tên miền riêng vào Jarvis để chạy HTTPS. Dùng khi deploy Docker trên VPS mở cổng 80/443.</div>
+              <div class="dom-field">
+                <input id="setDomain" placeholder="vd: jarvis.tencuaban.com" autocomplete="off" spellcheck="false">
                 <button class="s-btn" id="saveDomain">Lưu</button>
-                <button class="s-btn-ghost" id="checkDomain">Kiểm tra kết nối</button>
               </div>
-              <div id="domainGuide" style="display:none;margin-top:8px;font-size:13px;line-height:1.55;color:#cdd8ee"></div>
+              <div class="dom-status" id="domStatusRow" style="display:none">
+                <span class="dom-badge" id="dnsBadge">DNS: đang kiểm tra</span>
+                <span class="dom-badge" id="sslBadge">SSL: đang kiểm tra</span>
+              </div>
+              <div class="dom-ssl" id="domSslRow" style="display:none">
+                <button class="s-btn" id="sslToggle">Bật SSL</button>
+                <button class="s-btn-ghost" id="checkDomain">Kiểm tra lại</button>
+              </div>
+              <div id="domainGuide" class="dom-guide" style="display:none"></div>
               <div class="opt-sub" id="domainStatus"></div>
             </div>
 
@@ -528,14 +535,14 @@
   <script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
   <script src="/static/graph3d.js?v=13"></script>
   <script src="/static/app.js?v=46"></script>
-  <script src="/static/branding.js?v=3"></script>
+  <script src="/static/branding.js?v=4"></script>
   <script src="/static/quick-settings.js?v=1"></script>
   <script src="/static/chat-zoom.js?v=1"></script>
   <script src="/static/brains-ui.js?v=2"></script>
   <script src="/static/sessions-ui.js?v=1"></script>
   <script src="/static/studio.js?v=11"></script>
   <!-- Console layer: console.js đăng ký store TRƯỚC khi Alpine khởi động (defer) -->
-  <script src="/static/console.js?v=32"></script>
+  <script src="/static/console.js?v=33"></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
 </body>
 </html>

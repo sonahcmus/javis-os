@@ -2742,10 +2742,41 @@ async def domain_set(domain: str = Form("")):
     return {"ok": True, "domain": d}
 
 
+def _req_is_secure(request: Request) -> bool:
+    """Request hiện tại có phải HTTPS không (tôn trọng proxy qua X-Forwarded-Proto)."""
+    xf = (request.headers.get("x-forwarded-proto", "") or "").split(",")[0].strip().lower()
+    if xf:
+        return xf == "https"
+    return request.url.scheme == "https"
+
+
+async def _probe_https(domain: str):
+    """Mở https://<domain>/health TỪ CHÍNH server → buộc Caddy On-Demand cấp chứng chỉ ở lần đầu
+    và xác minh HTTPS chạy thật. Trả (active: bool, reason: str) với lý do dễ hiểu để hướng dẫn."""
+    if not domain:
+        return False, "Chưa đặt tên miền"
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+            r = await client.get(f"https://{domain}/health")
+        if r.status_code < 500:
+            return True, "HTTPS đang hoạt động"
+        return False, f"Máy chủ trả HTTP {r.status_code}"
+    except Exception as e:
+        s = (str(e) + " " + type(e).__name__).lower()
+        if "ssl" in s or "certificate" in s or "verify" in s:
+            return False, "Chứng chỉ chưa hợp lệ - DNS chưa trỏ đúng hoặc chứng chỉ chưa cấp xong"
+        if "connect" in s or "timeout" in s or "timed out" in s or "refused" in s:
+            return False, "Không kết nối được cổng 443 - Caddy/HTTPS chưa chạy, hoặc cổng 80/443 bị proxy khác chiếm"
+        return False, type(e).__name__
+
+
 @app.get("/domain/status")
 async def domain_status(request: Request):
     cfg = cfgmod.read_settings()
-    custom = _norm_domain((cfg.get("domain", {}) or {}).get("custom", ""))
+    dom = cfg.get("domain", {}) or {}
+    custom = _norm_domain(dom.get("custom", ""))
+    ssl_enabled = bool(dom.get("ssl_enabled", False))
     server_ip = _detect_public_ip()
     dns_ip = None
     dns_ok = False
@@ -2758,8 +2789,39 @@ async def domain_status(request: Request):
             dns_ip = None
     host = (request.headers.get("host", "") or "").split(":")[0].strip().lower()
     on_domain = bool(custom) and host == custom
+    secure_now = _req_is_secure(request)
+    # SSL: nếu đang mở chính tên miền qua HTTPS thì chắc chắn đang chạy; nếu không, chủ động probe.
+    ssl_active, ssl_reason = False, "Chưa đặt tên miền"
+    if custom:
+        if on_domain and secure_now:
+            ssl_active, ssl_reason = True, "Bạn đang mở qua HTTPS"
+        else:
+            ssl_active, ssl_reason = await _probe_https(custom)
     return {"domain": custom, "server_ip": server_ip, "dns_ip": dns_ip,
-            "dns_ok": dns_ok, "on_domain": on_domain}
+            "dns_ok": dns_ok, "on_domain": on_domain, "secure_now": secure_now,
+            "deploy_mode": _deploy_mode(), "ssl_enabled": ssl_enabled,
+            "ssl_active": ssl_active, "ssl_reason": ssl_reason}
+
+
+@app.post("/domain/ssl")
+async def domain_ssl(enabled: str = Form("1")):
+    """Bật/tắt SSL cho tên miền. Bật → lưu ý định + chủ động probe HTTPS (buộc Caddy cấp chứng chỉ),
+    trả trạng thái thật + gợi ý lệnh nếu chưa bật được (bản Docker cần compose HTTPS)."""
+    on = str(enabled).strip().lower() in ("1", "true", "yes", "on")
+    cfg = cfgmod.read_settings()
+    cfg.setdefault("domain", {})
+    custom = _norm_domain(cfg["domain"].get("custom", ""))
+    if on and not custom:
+        return JSONResponse({"ok": False, "error": "Hãy nhập và lưu tên miền trước khi bật SSL."}, status_code=400)
+    cfg["domain"]["ssl_enabled"] = on
+    cfgmod.write_settings(cfg)
+    if not on:
+        return {"ok": True, "enabled": False, "ssl_active": False, "ssl_reason": "Đã tắt SSL"}
+    active, reason = await _probe_https(custom)
+    resp = {"ok": True, "enabled": True, "ssl_active": active, "ssl_reason": reason}
+    if not active and _deploy_mode() == "docker":
+        resp["hint_cmd"] = "docker compose -f docker-compose.yml -f docker-compose.https.yml up -d"
+    return resp
 
 
 # ============================================

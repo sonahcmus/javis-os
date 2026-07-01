@@ -9,7 +9,7 @@
 
   // ---- Khai báo các mục trên rail (mở rộng = thêm dòng ở đây) ----
   // type 'view' = render trong cview ; có launch() = nút mở overlay/modal sẵn có.
-  const APP_VERSION = "0.4.0";   // bump mỗi lần cập nhật
+  const APP_VERSION = "0.4.3";   // fallback hiển thị tức thời; nguồn thật là /version (file VERSION)
 
   // Icon SVG line-style đồng bộ (thay cho lẫn lộn emoji + ký tự)
   const _svg = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -1354,7 +1354,10 @@
   function boot() {
     document.body.classList.add("has-rail");
     const ver = document.getElementById("railVersion");
-    if (ver) ver.textContent = "v" + APP_VERSION;
+    if (ver) {
+      ver.textContent = "v" + APP_VERSION;   // hiện tạm, thay ngay bằng phiên bản thật từ server
+      fetch("/version").then(r => r.json()).then(d => { if (d && d.current) ver.textContent = "v" + d.current; }).catch(() => {});
+    }
     // Theo dõi Studio mở/đóng → bật/tắt graph theo
     const st = document.getElementById("studio");
     if (st) new MutationObserver(recomputeGraph).observe(st, { attributes: true, attributeFilter: ["class"] });
