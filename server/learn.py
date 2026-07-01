@@ -147,6 +147,9 @@ class LearnDeps:
     sessions_store: Any
     state_dir: Path
     readonly_tools: List[str]
+    # Nối learn → Kanban: enqueue_task(brain, title, intent, route, priority, deps, needs_approval, created_by)
+    # → trả task id. Tiêm sau khi tasks_feature sẵn sàng (main gán). None = chưa nối (bỏ qua tasks).
+    enqueue_task: Optional[Callable] = None
 
 
 ALLOWED_WRITE_PREFIXES = ["memory", "Memory", "Wiki", ".claude/skills", "Javis"]
@@ -159,7 +162,7 @@ class LearnFeature:
         self.DEFAULT = {
             "enabled": False,
             "mode": "dry-run",                 # dry-run | suggest | auto
-            "capabilities": {"memory": True, "wiki": False, "skill": False},
+            "capabilities": {"memory": True, "wiki": False, "skill": False, "task": False},
             "debounce": {"k": 3, "idle_min": 10, "dense_idle_min": 3},
             "rate": {"min_interval_s": 90, "fork_day": 40, "token_day": 300000},
             "curator": {"enabled": False, "interval_hours": 24, "last_run": 0.0},
@@ -330,6 +333,7 @@ class LearnFeature:
         if caps.get("memory"): want.append("facts")
         if caps.get("wiki"): want.append("wiki")
         if caps.get("skill"): want.append("skills")
+        if caps.get("task"): want.append("tasks")
 
         schema_bits = []
         if caps.get("memory"):
@@ -346,6 +350,10 @@ class LearnFeature:
             schema_bits.append(
                 '"skills":[{"slug":"kebab","name":"..","description":"khi nào dùng","body":"quy trình các bước",'
                 '"self_observed":true|false,"confidence":0..3}]')
+        if caps.get("task"):
+            schema_bits.append(
+                '"tasks":[{"title":"tên việc ngắn","intent":"mô tả TỰ-ĐỦ để agent nền chỉ-file tự làm",'
+                '"priority":1..3,"confidence":0..3}]')
 
         return (
             "BẠN LÀ VÒNG HỌC READ-ONLY của Javis. TUYỆT ĐỐI KHÔNG ghi/sửa/xoá file, KHÔNG gọi tool ghi. "
@@ -353,7 +361,8 @@ class LearnFeature:
             "PHÂN LOẠI ĐA-NHÃN (1 đoạn có thể sinh nhiều loại):\n"
             "• fact (Memory) = sự thật BỀN về CHÍNH user/doanh nghiệp này (bỏ tên riêng thì mất nghĩa).\n"
             "• wiki = KHÁI NIỆM/framework/quy trình TÁI DÙNG (đúng cả với người khác).\n"
-            "• skill = quy trình nhiều bước Javis VỪA TỰ LÀM, có công thức lặp lại.\n\n"
+            "• skill = quy trình nhiều bước Javis VỪA TỰ LÀM, có công thức lặp lại.\n"
+            "• task = VIỆC NỀN cụ thể đáng giao Javis tự làm sau (yêu cầu lặp lại / việc bỏ dở / câu hỏi mở).\n\n"
             "PROVENANCE (bắt buộc, chống bịa): 'user'=user khẳng định; 'source'=trích nguồn có tên; "
             "'assistant'=CHÍNH JAVIS tự nói không nguồn. ⚠ Mục wiki provenance='assistant' sẽ BỊ LOẠI "
             "(đẩy sang cần-xác-minh) → chỉ đưa vào wiki thứ user/nguồn khẳng định.\n"
@@ -361,7 +370,11 @@ class LearnFeature:
             "DEDUP: đọc INDEX dưới đây trước; nếu khái niệm ĐÃ CÓ → set same_as=tên trang (đừng tạo trùng); "
             "nếu MÂU THUẪN với trang cũ → set conflict_with (KHÔNG ghi đè, sẽ ghi mục ## Mâu thuẫn).\n"
             "CITATION: mọi câu wiki cụ thể kết bằng [[conversations/" + _today() + "]] hoặc nguồn có tên.\n\n"
-            f"CHỈ tạo các loại: {', '.join(want)}.\n"
+            + ("TASK (chống spam backlog): CHỈ đề xuất task khi hội thoại có VIỆC RÕ RÀNG chưa làm - "
+               "user nhờ lặp lại, việc bỏ dở được nhắc, hoặc câu hỏi mở cần điều tra thêm. intent phải "
+               "TỰ-ĐỦ (agent nền chỉ thao tác file, KHÔNG thấy hội thoại này). Đa số batch không có việc "
+               "mới → để tasks rỗng.\n\n" if caps.get("task") else "")
+            + f"CHỈ tạo các loại: {', '.join(want)}.\n"
             "OUTPUT JSON (đúng khoá, thiếu loại thì để mảng rỗng):\n{" + ",".join(schema_bits) +
             ',"notes":"tóm tắt tiếng Việt 1-2 câu"}\n\n'
             "=== BỘ NHỚ HIỆN CÓ (MEMORY.md, để tránh trùng) ===\n" + (mem_idx or "(trống)") + "\n\n"
@@ -676,6 +689,48 @@ class LearnFeature:
 
             report = await asyncio.to_thread(self._promote_sync, brain, manifest, cfg, caps, allow_write)
 
+            # ---- TASKS (learn → Kanban) ----
+            # Chạy TRÊN event-loop (không to_thread): tasks.enqueue là hàm sync → nguyên tử với
+            # dispatcher/_io, tránh lost-update trên kanban.json. Gate như facts: chỉ enqueue thật
+            # khi allow_write (mode auto + git + rate, hoặc force); dry-run chỉ liệt kê. Dedup theo
+            # tên chuẩn hoá nằm ở tasks.enqueue. Task vào backlog với needs_approval=True và
+            # orchestration mặc định off → enqueue tự nó KHÔNG chạy gì.
+            report["tasks"] = []
+            enqueued_n = 0
+            if caps.get("task"):
+                for t in (manifest.get("tasks") or [])[:3]:      # trần 3 task/batch chống spam
+                    title = (t.get("title") or "").strip()
+                    intent = (t.get("intent") or "").strip() or title
+                    try:
+                        conf = int(t.get("confidence", 0))
+                    except Exception:
+                        conf = 0
+                    if not title or conf < 2:
+                        continue
+                    if secret_hits(title + "\n" + intent):
+                        report["blocked"].append(f"task '{title[:40]}': chứa secret"); continue
+                    if injection_in_output(title + "\n" + intent):
+                        report["blocked"].append(f"task '{title[:40]}': chứa câu injection"); continue
+                    if allow_write and self.deps.enqueue_task:
+                        try:
+                            pr = max(1, min(3, int(t.get("priority", 2))))
+                        except Exception:
+                            pr = 2
+                        try:
+                            self.deps.enqueue_task(brain, title, intent, "auto", pr, None, True, "learn")
+                            report["tasks"].append(title)
+                            enqueued_n += 1
+                        except Exception as te:
+                            report["blocked"].append(f"task '{title[:40]}': enqueue lỗi {te}")
+                    else:
+                        report["tasks"].append(title)            # dry-run/suggest: chỉ báo "sẽ tạo"
+            if enqueued_n and not report.get("commit"):
+                # batch chỉ-có-task vẫn phải đếm vào rate-limit (backpressure); _promote_sync
+                # chỉ bump khi có commit → bump ở đây, tránh đếm đôi khi cả hai cùng xảy ra.
+                st = cfg.setdefault("_state", {})
+                st["fork_count"] = int(st.get("fork_count", 0)) + 1
+                st["last_fork_ts"] = time.time()
+
             # token ước lượng (thô) để đếm budget
             st = cfg.setdefault("_state", {})
             st["token_est"] = int(st.get("token_est", 0)) + (len(prompt) + len(out)) // 4
@@ -688,6 +743,7 @@ class LearnFeature:
 
             self._log(brain, "learn",
                       f"{reason} · {status} · fact={report['facts']} wiki={report['wiki']} skill={report['skills']}"
+                      + (f" task={report['tasks']}" if report.get("tasks") else "")
                       + (f" · commit {report['commit']}" if report.get("commit") else ""),
                       summary + ("\n\n**Bị chặn:** " + "; ".join(report["blocked"]) if report.get("blocked") else ""))
             return {"ok": True, "summary": summary, "report": report, "status": status}
@@ -775,6 +831,7 @@ class LearnFeature:
         async def learn_config_set(
             enabled: str = Form(None), mode: str = Form(None),
             cap_memory: str = Form(None), cap_wiki: str = Form(None), cap_skill: str = Form(None),
+            cap_task: str = Form(None),
             curator_enabled: str = Form(None), brain: str = Form(None),
         ):
             cfg = self.read_config()
@@ -783,7 +840,7 @@ class LearnFeature:
             if mode in ("dry-run", "suggest", "auto"):
                 cfg["mode"] = mode
             caps = cfg.setdefault("capabilities", {})
-            for key, val in (("memory", cap_memory), ("wiki", cap_wiki), ("skill", cap_skill)):
+            for key, val in (("memory", cap_memory), ("wiki", cap_wiki), ("skill", cap_skill), ("task", cap_task)):
                 if val is not None:
                     caps[key] = val in ("1", "true", "True", "on")
             if curator_enabled is not None:

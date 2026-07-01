@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -50,6 +52,13 @@ def _now() -> float:
 
 def _vn() -> str:
     return datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M")
+
+
+def _norm_title(text: str) -> str:
+    """Chuẩn hoá tên task để dedup (bỏ dấu tiếng Việt + lower + gọn khoảng trắng)."""
+    t = unicodedata.normalize("NFD", (text or "").lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", t)).strip()
 
 
 @dataclass
@@ -105,6 +114,13 @@ class TasksFeature:
                 priority: int = 2, deps: Optional[List[str]] = None,
                 needs_approval: bool = True, created_by: str = "user") -> str:
         board = self._load(brain)
+        # Dedup theo tên chuẩn hoá: đã có task CHƯA XONG trùng tên → trả id cũ, không tạo mới
+        # (chống learn đề xuất lại mỗi batch; done/archived không tính → việc định kỳ lặp được).
+        norm = _norm_title(title or intent)
+        if norm:
+            for t in board.get("tasks", []):
+                if t.get("status") not in _DONE_ISH and _norm_title(t.get("title", "")) == norm:
+                    return t["id"]
         tid = "t_" + uuid.uuid4().hex[:10]
         task = {
             "id": tid, "title": (title or intent or "Task")[:120], "intent": intent or title or "",

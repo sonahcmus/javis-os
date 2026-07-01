@@ -535,7 +535,7 @@
     ];
     const modeChips = MODES.map(([v, l]) => `<button class="si-chip ${cfg.mode === v ? "sel" : ""}" data-mode="${v}">${l}</button>`).join("");
     const modeDesc = (MODES.find(m => m[0] === cfg.mode) || MODES[0])[2];
-    const capRow = [["memory", "Ký ức (Memory)"], ["wiki", "Tri thức (Wiki)"], ["skill", "Kỹ năng (Skill)"]]
+    const capRow = [["memory", "Ký ức (Memory)"], ["wiki", "Tri thức (Wiki)"], ["skill", "Kỹ năng (Skill)"], ["task", "Việc (Kanban)"]]
       .map(([k, l]) => `<button class="si-chip ${caps[k] ? "sel" : ""}" data-cap="${k}">${caps[k] ? "● " : "○ "}${l}</button>`).join("");
     const gitWarn = cfg.git_available ? "" : `<div class="dim" style="color:#e0a04a;font-size:13px;margin-top:6px">⚠ Máy chưa có <code>git</code> → chế độ Tự ghi sẽ tự hạ về Chạy thử (không undo được nếu không git).</div>`;
 
@@ -548,7 +548,7 @@
         <div class="si-field"><label>Chế độ ghi</label><div class="si-row" id="lnModes">${modeChips}</div>
           <div class="dim" id="lnModeDesc" style="font-size:14px;margin-top:6px;color:#7d8aa6">${esc(modeDesc)}</div>${gitWarn}</div>
         <div class="si-field"><label>Học cái gì</label><div class="si-row" id="lnCaps">${capRow}</div>
-          <div class="dim" style="font-size:13px;margin-top:6px;color:#7d8aa6">Wiki/Skill nên bật sau khi đã quen với Ký ức (lộ trình Phase 2/3).</div></div>
+          <div class="dim" style="font-size:13px;margin-top:6px;color:#7d8aa6">Wiki/Skill nên bật sau khi đã quen với Ký ức (lộ trình Phase 2/3). Việc = học xong đề xuất task nền vào bảng Việc (Kanban) - chỉ tạo thật ở chế độ Tự ghi, và task luôn chờ bạn duyệt.</div></div>
         <div class="si-field"><label>Curator (bảo trì định kỳ)</label>
           <button class="si-chip ${(cfg.curator||{}).enabled ? "sel" : ""}" id="lnCurator">${(cfg.curator||{}).enabled ? "● Bật" : "○ Tắt"}</button>
           <div class="dim" style="font-size:13px;margin-top:6px;color:#7d8aa6">Dọn index, LINT Wiki (chỉ đề xuất), nén MEMORY.md. Không xoá.</div></div>
@@ -566,7 +566,7 @@
     </div>`;
 
     let cur = { enabled: !!cfg.enabled, mode: cfg.mode || "dry-run",
-                caps: { memory: !!caps.memory, wiki: !!caps.wiki, skill: !!caps.skill },
+                caps: { memory: !!caps.memory, wiki: !!caps.wiki, skill: !!caps.skill, task: !!caps.task },
                 curator: !!(cfg.curator || {}).enabled };
     const modeDescEl = el.querySelector("#lnModeDesc");
     el.querySelectorAll("#lnModes .si-chip").forEach(c => c.onclick = () => {
@@ -601,6 +601,7 @@
       f.append("cap_memory", cur.caps.memory ? "1" : "0");
       f.append("cap_wiki", cur.caps.wiki ? "1" : "0");
       f.append("cap_skill", cur.caps.skill ? "1" : "0");
+      f.append("cap_task", cur.caps.task ? "1" : "0");
       f.append("curator_enabled", cur.curator ? "1" : "0");
       f.append("brain", fbrain());
       return (await fetch("/learn/config", { method: "POST", body: f })).json();

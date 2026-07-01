@@ -2195,6 +2195,10 @@ tasks_feature = tasks_mod.register(app, tasks_mod.TasksDeps(
     safe_tools=SAFE_FILE_TOOLS,
 ))
 
+# Nối learn → Kanban: engine học đề xuất việc nền → enqueue vào backlog.
+# Gate ở learn.py (cap "task" mặc định off + chỉ enqueue khi allow_write); dedup ở tasks.enqueue.
+learn_feature.deps.enqueue_task = tasks_feature.enqueue
+
 
 @app.get("/lint")
 async def lint(brain: str = Query("brain")):
