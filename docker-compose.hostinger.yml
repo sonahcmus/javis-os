@@ -18,7 +18,7 @@
 # GHI CHÚ:
 #   - Không thấy ô Environment? Bấm Manage > sửa file .yaml, đổi thẳng dòng Host(...) thành tên miền:
 #       Host(`javis.srv1782015.hstgr.cloud`)   (thay bằng hostname VPS của bạn).
-#   - Vẫn publish 7777 làm đường vào dự phòng (nút Open / http://<ip>:7777).
+#   - Chỉ truy cập qua https://<DOMAIN_NAME> (Traefik lo HTTPS). Cổng 7777 publish ngẫu nhiên, không vào trực tiếp.
 #   - VPS KHÔNG phải Hostinger: bỏ file này, dùng docker-compose.yml + docker-compose.https.yml (Caddy).
 #   - Image GHCR phải để PUBLIC (GitHub > Packages > javis-os > Package settings > Public).
 # ============================================================================
@@ -38,7 +38,8 @@ services:
       OBSIDIAN_VAULT_PATH: /data/vault
       CLAUDE_CWD: /app
     ports:
-      - "7777:7777"                 # đường vào dự phòng (nút Open / http://<ip>:7777)
+      - "7777"                      # publish cổng NGẪU NHIÊN (giống Hermes "4860"), KHÔNG cố định 7777:7777
+                                    # → nút Open trỏ thẳng domain HTTPS của Traefik, không phải http://<ip>:7777.
     labels:
       # Copy đúng mẫu Hermes: KHÔNG có traefik.docker.network, KHÔNG có networks external.
       # Tên router/service = ${COMPOSE_PROJECT_NAME} (tên project) → chạy được nhiều bản trên cùng VPS.
