@@ -116,18 +116,10 @@
           <span class="tool-spinner"></span>
           <span id="toolBarText">Đang xử lý...</span>
         </div>
-        <div class="panel-label" style="margin-top:10px">
-          BỘ NHỚ DÀI HẠN <span class="mem-count" id="memCount">0</span>
-        </div>
-        <div class="mem-box">
-          <div class="mem-desc">Ký ức lưu ngay trong vault đang chọn - đổi máy chỉ cần trỏ lại vault là Javis nhớ như cũ.</div>
-          <label class="auto-learn">
-            <input type="checkbox" id="autoLearnToggle" checked>
-            <span>Tự học sau mỗi 6 lượt</span>
-          </label>
-          <button class="learn-btn" id="learnBtn">🧠 Học ngay từ hội thoại</button>
-          <div class="mem-result" id="memResult"></div>
-        </div>
+        <!-- "BỘ NHỚ DÀI HẠN" + auto-reflect "sau mỗi 6 lượt" ĐÃ BỎ: engine tự học mới (learn.py)
+             rewire sau MỖI lượt (có debounce, read-only, undo được). Cấu hình + xem "đã học gì" +
+             hoàn tác ở trang sidebar "Tự học" (console.js renderLearn). Widget cũ vốn là UI chết,
+             không còn JS nào gắn vào (autoLearnToggle/learnBtn/memCount không có handler). -->
 
         <!-- Vòng lặp tự cải thiện ĐÃ DỜI sang trang sidebar "Tự cải thiện" (console.js renderSelfImprove).
              Giữ DOM ẩn để app.js cũ vẫn gắn handler không lỗi. -->

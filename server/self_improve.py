@@ -28,7 +28,18 @@ from typing import Any, Callable, List, Optional
 
 from fastapi import APIRouter, Form, Query
 
-from claude_cli import ClaudeCLI, cancel_all
+from claude_cli import ClaudeCLI, cancel_all, _empty_mcp_file
+
+
+def _isolate(cli: ClaudeCLI) -> ClaudeCLI:
+    """Cô lập fork nền: 0 MCP (file rỗng + strict) + chặn Bash/Web/Task. Vá lỗ hổng cũ:
+    trước đây loop chỉ giới hạn allowed_tools nhưng vẫn 'thấy' MCP ambient của máy."""
+    mcpf = _empty_mcp_file()
+    if mcpf:
+        cli.mcp_config = mcpf
+        cli.mcp_strict = True
+    cli.disallowed_tools = ["Bash", "WebFetch", "WebSearch", "Task"]
+    return cli
 
 
 @dataclass
@@ -185,7 +196,7 @@ class LoopFeature:
                         "Mỗi việc 1 dòng '- [loại] mô tả → hành động'. Không có gì → 'Không có việc mới'."
                     )
 
-            gcli = ClaudeCLI(system_prompt=sysprompt, cwd=vault_root, tag="loop", allowed_tools=tools)
+            gcli = _isolate(ClaudeCLI(system_prompt=sysprompt, cwd=vault_root, tag="loop", allowed_tools=tools))
             gcli.model = self.deps.aux_model() or None   # việc nền: dùng model phụ nếu có cấu hình
             if not gcli.is_available():
                 return {"ok": False, "error": "Claude CLI chưa cài"}
@@ -199,9 +210,9 @@ class LoopFeature:
             verify_line = ""
             if mode == "auto" and summary and "không có việc mới" not in summary.lower():
                 # Kiểm chứng độc lập: giả định kết quả SAI, kiểm tra thực tế
-                vcli = ClaudeCLI(
+                vcli = _isolate(ClaudeCLI(
                     system_prompt="Bạn là người KIỂM CHỨNG độc lập, giả định kết quả vừa rồi SAI.",
-                    cwd=vault_root, tag="loop", allowed_tools=self.deps.readonly_tools)
+                    cwd=vault_root, tag="loop", allowed_tools=self.deps.readonly_tools))
                 if goal == "business":
                     criteria = ("đề xuất có BÁM số liệu thật không, có khả thi/đủ cụ thể để làm ngay không, "
                                 "có bịa số không, và TUYỆT ĐỐI không chứa hành động tiền/đơn/đăng bài tự động")

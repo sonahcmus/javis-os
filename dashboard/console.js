@@ -27,6 +27,7 @@
     account:     _svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6.5 8-6.5s8 2.5 8 6.5"/>'),
     files:       _svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>'),
     selfimprove: _svg('<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>'),
+    learn:       _svg('<path d="M12 3v18"/><path d="M5 7h14"/><path d="M4 12h16"/><circle cx="12" cy="12" r="9"/>'),
     settings:    _svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
   };
 
@@ -39,6 +40,7 @@
     { id: "skills",      icon: ICON.skills,      label: "Skills" },
     { id: "files",       icon: ICON.files,       label: "Tệp tin" },
     { id: "selfimprove", icon: ICON.selfimprove, label: "Tự cải thiện" },
+    { id: "learn",       icon: ICON.learn,       label: "Tự học" },
     { id: "automations", icon: ICON.automations, label: "Lịch" },
     { id: "models",      icon: ICON.models,      label: "Models" },
     { id: "channels",    icon: ICON.channels,    label: "Kênh" },
@@ -56,6 +58,7 @@
     skills:      { icon: "🧩", label: "Skills", sub: "Kỹ năng khả dụng" },
     files:       { icon: "🗂", label: "Tệp tin", sub: "Duyệt · sửa · tải file trong brain" },
     selfimprove: { icon: "♻", label: "Tự cải thiện", sub: "Nhiệm vụ tự động chạy nền" },
+    learn:       { icon: "🧠", label: "Tự học", sub: "Rewire Memory · Wiki · Skill (an toàn, undo được)" },
     automations: { icon: "⏰", label: "Lịch tự động", sub: "Cron · trigger · routine" },
     models:      { icon: "◈", label: "Models", sub: "Main model & providers" },
     channels:    { icon: "✉", label: "Kênh kết nối", sub: "Telegram & hơn nữa" },
@@ -126,6 +129,7 @@
     if (id === "account")  return renderAccount(el);
     if (id === "files")    return renderFiles(el);
     if (id === "selfimprove") return renderSelfImprove(el);
+    if (id === "learn")    return renderLearn(el);
     if (id === "logs")     return renderLogs(el);
     el.innerHTML = placeholder(id);
   }
@@ -509,6 +513,138 @@
       box.innerHTML = (d.entries || []).length ? d.entries.map(e => `<div class="le">${esc(e)}</div>`).join("") : `<div class="dim" style="color:#6b7894">Chưa có nhật ký.</div>`;
     }
     loadStatus(); loadLog();
+  }
+
+  // ============================================
+  // Trang Tự học (rewire Memory/Wiki/Skill - an toàn, undo được)
+  // ============================================
+  async function renderLearn(el) {
+    _injectExtraCss();
+    el.innerHTML = `<div class="cview-section"><div class="empty">Đang tải...</div></div>`;
+    let cfg = {};
+    try { cfg = await (await fetch("/learn/config")).json(); } catch (e) {}
+    const caps = cfg.capabilities || {};
+    const MODES = [
+      ["dry-run", "Chạy thử", "Chỉ ghi nhật ký 'sẽ học gì' - KHÔNG đụng file. An toàn nhất."],
+      ["suggest", "Đề xuất", "Như chạy thử, để bạn xem trước khi cho ghi."],
+      ["auto", "Tự ghi", "Ghi thẳng vào Memory/Wiki - git-commit + undo được."],
+    ];
+    const modeChips = MODES.map(([v, l]) => `<button class="si-chip ${cfg.mode === v ? "sel" : ""}" data-mode="${v}">${l}</button>`).join("");
+    const modeDesc = (MODES.find(m => m[0] === cfg.mode) || MODES[0])[2];
+    const capRow = [["memory", "Ký ức (Memory)"], ["wiki", "Tri thức (Wiki)"], ["skill", "Kỹ năng (Skill)"]]
+      .map(([k, l]) => `<button class="si-chip ${caps[k] ? "sel" : ""}" data-cap="${k}">${caps[k] ? "● " : "○ "}${l}</button>`).join("");
+    const gitWarn = cfg.git_available ? "" : `<div class="dim" style="color:#e0a04a;font-size:13px;margin-top:6px">⚠ Máy chưa có <code>git</code> → chế độ Tự ghi sẽ tự hạ về Chạy thử (không undo được nếu không git).</div>`;
+
+    el.innerHTML = `<div class="cview-section">
+      <p style="color:#9fb0cf;font-size:15px;max-width:660px;margin:0 0 14px">Sau mỗi hội thoại, Javis tự rút <b>ký ức</b>, đúc <b>tri thức Wiki</b> và <b>kỹ năng</b> - qua một tiến trình học <b>chỉ-đọc, cô lập</b> (0 MCP, không xoá). Người ghi file là code tin cậy; mọi lần học đều <b>git-commit + hoàn tác 1 chạm</b>. Mặc định <b>Chạy thử</b> để bạn xem trước.</p>
+      <div class="si-grid">
+        <div class="si-field"><label>Bật tự học</label>
+          <button class="si-chip ${cfg.enabled ? "sel" : ""}" id="lnEnabled">${cfg.enabled ? "● Đang bật" : "○ Đang tắt"}</button>
+          <div class="dim" id="lnEnableNote" style="font-size:13px;margin-top:6px;color:#7d8aa6">Bật lần đầu sẽ git-init brain để undo được.</div></div>
+        <div class="si-field"><label>Chế độ ghi</label><div class="si-row" id="lnModes">${modeChips}</div>
+          <div class="dim" id="lnModeDesc" style="font-size:14px;margin-top:6px;color:#7d8aa6">${esc(modeDesc)}</div>${gitWarn}</div>
+        <div class="si-field"><label>Học cái gì</label><div class="si-row" id="lnCaps">${capRow}</div>
+          <div class="dim" style="font-size:13px;margin-top:6px;color:#7d8aa6">Wiki/Skill nên bật sau khi đã quen với Ký ức (lộ trình Phase 2/3).</div></div>
+        <div class="si-field"><label>Curator (bảo trì định kỳ)</label>
+          <button class="si-chip ${(cfg.curator||{}).enabled ? "sel" : ""}" id="lnCurator">${(cfg.curator||{}).enabled ? "● Bật" : "○ Tắt"}</button>
+          <div class="dim" style="font-size:13px;margin-top:6px;color:#7d8aa6">Dọn index, LINT Wiki (chỉ đề xuất), nén MEMORY.md. Không xoá.</div></div>
+        <div class="si-actions">
+          <button class="s-btn" id="lnSave">💾 Lưu cấu hình</button>
+          <button class="s-btn-ghost" id="lnRun">▶ Học ngay</button>
+          <button class="s-btn-ghost" id="lnCuratorRun">🧹 Curator ngay</button>
+          <button class="s-btn-ghost" id="lnStop">■ Dừng</button>
+          <button class="s-btn-ghost" id="lnUndo" style="color:#e0a04a">↶ Hoàn tác lần học gần nhất</button>
+        </div>
+      </div>
+      <div class="si-status" id="lnMetrics"></div>
+      <div class="si-log"><h3 style="font-size:15px;color:#cdd8ee">Javis đã tự học gì (commit gần nhất)</h3><div id="lnReview">Đang tải...</div></div>
+      <div class="si-log"><h3 style="font-size:15px;color:#cdd8ee">Nhật ký học</h3><div id="lnLog">Đang tải...</div></div>
+    </div>`;
+
+    let cur = { enabled: !!cfg.enabled, mode: cfg.mode || "dry-run",
+                caps: { memory: !!caps.memory, wiki: !!caps.wiki, skill: !!caps.skill },
+                curator: !!(cfg.curator || {}).enabled };
+    const modeDescEl = el.querySelector("#lnModeDesc");
+    el.querySelectorAll("#lnModes .si-chip").forEach(c => c.onclick = () => {
+      cur.mode = c.dataset.mode;
+      el.querySelectorAll("#lnModes .si-chip").forEach(x => x.classList.toggle("sel", x === c));
+      modeDescEl.textContent = (MODES.find(m => m[0] === cur.mode) || MODES[0])[2];
+    });
+    el.querySelectorAll("#lnCaps .si-chip").forEach(c => c.onclick = () => {
+      const k = c.dataset.cap; cur.caps[k] = !cur.caps[k];
+      c.classList.toggle("sel", cur.caps[k]);
+      c.textContent = (cur.caps[k] ? "● " : "○ ") + c.textContent.slice(2);
+    });
+    const curBtn = el.querySelector("#lnCurator");
+    curBtn.onclick = () => { cur.curator = !cur.curator; curBtn.classList.toggle("sel", cur.curator); curBtn.textContent = cur.curator ? "● Bật" : "○ Tắt"; };
+    const enBtn = el.querySelector("#lnEnabled");
+    enBtn.onclick = async () => {
+      if (!cur.enabled) {
+        enBtn.textContent = "Đang git-init...";
+        let r = {}; try { r = await (await fetch("/learn/enable", { method: "POST", body: (()=>{const f=new FormData();f.append("brain",fbrain());return f;})() })).json(); } catch (e) {}
+        cur.enabled = true; el.querySelector("#lnEnableNote").textContent = r.note || "Đã bật.";
+      } else {
+        cur.enabled = false;
+        const f = new FormData(); f.append("enabled", "0"); f.append("brain", fbrain());
+        await fetch("/learn/config", { method: "POST", body: f });
+      }
+      enBtn.classList.toggle("sel", cur.enabled); enBtn.textContent = cur.enabled ? "● Đang bật" : "○ Đang tắt";
+    };
+
+    async function save() {
+      const f = new FormData();
+      f.append("enabled", cur.enabled ? "1" : "0"); f.append("mode", cur.mode);
+      f.append("cap_memory", cur.caps.memory ? "1" : "0");
+      f.append("cap_wiki", cur.caps.wiki ? "1" : "0");
+      f.append("cap_skill", cur.caps.skill ? "1" : "0");
+      f.append("curator_enabled", cur.curator ? "1" : "0");
+      f.append("brain", fbrain());
+      return (await fetch("/learn/config", { method: "POST", body: f })).json();
+    }
+    el.querySelector("#lnSave").onclick = async () => { const b = el.querySelector("#lnSave"); b.textContent = "Đang lưu..."; await save(); b.textContent = "✓ Đã lưu"; setTimeout(() => b.textContent = "💾 Lưu cấu hình", 1500); };
+    const brainForm = () => { const f = new FormData(); f.append("brain", fbrain()); return f; };
+    el.querySelector("#lnRun").onclick = async () => {
+      const b = el.querySelector("#lnRun"); b.disabled = true; b.textContent = "Đang học...";
+      await save(); await fetch("/learn/run-now", { method: "POST", body: brainForm() });
+      setTimeout(() => { b.disabled = false; b.textContent = "▶ Học ngay"; loadAll(); }, 2500);
+    };
+    el.querySelector("#lnCuratorRun").onclick = async () => {
+      const b = el.querySelector("#lnCuratorRun"); b.disabled = true; b.textContent = "Đang dọn...";
+      await fetch("/learn/curator-now", { method: "POST", body: brainForm() });
+      setTimeout(() => { b.disabled = false; b.textContent = "🧹 Curator ngay"; loadAll(); }, 2500);
+    };
+    el.querySelector("#lnStop").onclick = async () => { await fetch("/learn/stop", { method: "POST" }); };
+    el.querySelector("#lnUndo").onclick = async () => {
+      if (!confirm("Hoàn tác (git revert) lần học gần nhất?")) return;
+      const b = el.querySelector("#lnUndo"); b.disabled = true; b.textContent = "Đang hoàn tác...";
+      let r = {}; try { r = await (await fetch("/learn/undo", { method: "POST", body: brainForm() })).json(); } catch (e) { r = { error: e.message }; }
+      b.disabled = false; b.textContent = "↶ Hoàn tác lần học gần nhất";
+      alert(r.ok ? ("Đã hoàn tác: " + (r.subject || r.reverted)) : ("Không hoàn tác được: " + (r.error || "?")));
+      loadAll();
+    };
+
+    async function loadMetrics() {
+      let m = {}; try { m = await (await fetch(`/learn/metrics?brain=${encodeURIComponent(fbrain())}`)).json(); } catch (e) { }
+      el.querySelector("#lnMetrics").innerHTML =
+        `<b>Chỉ số</b> · Ký ức: <b>${m.facts ?? "?"}</b> · Wiki: <b>${m.wiki ?? "?"}</b> · MEMORY.md: ${(m.memory_bytes||0)}B` +
+        ` · Fork hôm nay: ${m.fork_today ?? 0} · Token ước tính: ${m.token_today ?? 0} · Commit học: ${m.learn_commits ?? 0}`;
+    }
+    async function loadReview() {
+      let d = { commits: [] }; try { d = await (await fetch(`/learn/review?brain=${encodeURIComponent(fbrain())}&limit=12`)).json(); } catch (e) { }
+      const box = el.querySelector("#lnReview");
+      if (!d.git_repo) { box.innerHTML = `<div class="dim" style="color:#e0a04a">Brain chưa phải git repo - bật Tự học để git-init (mới xem/undo được commit).</div>`; return; }
+      box.innerHTML = (d.commits || []).length ? d.commits.map(c => {
+        const when = c.ts ? new Date(c.ts * 1000).toLocaleString() : "";
+        const files = (c.files || []).slice(0, 6).map(f => `<code style="font-size:11px">${esc(f)}</code>`).join(" ");
+        return `<div class="le"><b>${esc(c.subject)}</b> <span class="dim" style="color:#6b7894">${esc(c.hash)} · ${esc(when)}</span><br>${files}</div>`;
+      }).join("") : `<div class="dim" style="color:#6b7894">Chưa có commit học nào.</div>`;
+    }
+    async function loadLog() {
+      let d = { entries: [] }; try { d = await (await fetch(`/learn/log?brain=${encodeURIComponent(fbrain())}&limit=10`)).json(); } catch (e) { }
+      el.querySelector("#lnLog").innerHTML = (d.entries || []).length ? d.entries.map(e => `<div class="le">${esc(e)}</div>`).join("") : `<div class="dim" style="color:#6b7894">Chưa có nhật ký học.</div>`;
+    }
+    function loadAll() { loadMetrics(); loadReview(); loadLog(); }
+    loadAll();
   }
 
   async function freshSettings() {

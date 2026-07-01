@@ -83,6 +83,23 @@ def _no_window():
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
+# ---- MCP RỖNG cho fork học (cô lập tuyệt đối) ----
+# `--strict-mcp-config` của Claude Code CHỈ có hiệu lực khi đi kèm 1 file --mcp-config.
+# Fork học phải chạy với 0 MCP → ta ghi 1 file {"mcpServers":{}} rồi truyền strict.
+# Gọi _empty_mcp_file() TRẢ path đã ĐẢM BẢO tồn tại + non-empty (fail-closed: caller phải
+# assert path này trước khi spawn; None/rỗng ⇒ TỪ CHỐI spawn, không để fork nuốt MCP máy).
+import tempfile as _tempfile
+
+def _empty_mcp_file() -> Optional[str]:
+    try:
+        p = Path(_tempfile.gettempdir()) / "javis-empty-mcp.json"
+        if not (p.exists() and p.stat().st_size > 0):
+            p.write_text('{"mcpServers":{}}', encoding="utf-8")
+        return str(p) if p.stat().st_size > 0 else None
+    except Exception:
+        return None
+
+
 def auth_status():
     """Trạng thái đăng nhập Claude Code: {connected, email, plan, org}."""
     cli = find_claude_cli()
@@ -324,6 +341,8 @@ class ClaudeCLI:
         self.mcp_config: Optional[str] = None   # path file --mcp-config (MCP do Javis quản lý)
         self.mcp_strict: bool = False           # True → --strict-mcp-config (bỏ qua MCP sẵn của máy)
         self.disallowed_tools: Optional[list] = None  # pattern --disallowedTools (server chỉ-đọc)
+        self.max_wall_s: Optional[float] = None  # trần wall-clock (giây) cho fork nền; None = không cap
+                                                 # (khác idle watchdog: cap cả fork ĐANG chạy loop rác)
 
     def is_available(self) -> bool:
         return self.cli_path is not None
@@ -390,6 +409,7 @@ class ClaudeCLI:
                 with _PROC_LOCK:
                     _ACTIVE_PROCS[proc] = self.tag
 
+                started = time.time()
                 def _watchdog(p):
                     while p.poll() is None:
                         if time.time() - last["t"] > IDLE:
@@ -398,6 +418,12 @@ class ClaudeCLI:
                             asyncio.run_coroutine_threadsafe(queue.put({"__error__":
                                 f"Claude không phản hồi {int(IDLE)}s - đã dừng để tránh treo server. "
                                 f"(tăng JAVIS_CLAUDE_IDLE_TIMEOUT nếu tác vụ thật sự dài)"}), loop)
+                            return
+                        if self.max_wall_s and time.time() - started > self.max_wall_s:
+                            tinfo["timed_out"] = True
+                            _kill_tree(p)
+                            asyncio.run_coroutine_threadsafe(queue.put({"__error__":
+                                f"Fork vượt trần {int(self.max_wall_s)}s - đã dừng (cap wall-clock nền)."}), loop)
                             return
                         time.sleep(5)
                 threading.Thread(target=_watchdog, args=(proc,), daemon=True).start()

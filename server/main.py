@@ -23,9 +23,10 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from claude_cli import ClaudeCLI, CodexCLI, find_claude_cli, find_codex_cli, cancel_all, auth_status as claude_auth_status, auth_login as claude_auth_login, auth_logout as claude_auth_logout, auth_login_ui_start, auth_login_ui_code, mcp_native_add, mcp_native_remove, mcp_native_status, mcp_open_auth_terminal, mcp_native_list
+from claude_cli import ClaudeCLI, CodexCLI, find_claude_cli, find_codex_cli, cancel_all, _empty_mcp_file, auth_status as claude_auth_status, auth_login as claude_auth_login, auth_logout as claude_auth_logout, auth_login_ui_start, auth_login_ui_code, mcp_native_add, mcp_native_remove, mcp_native_status, mcp_open_auth_terminal, mcp_native_list
 from graph_builder import build_graph, _color_for, _top_folder, WIKILINK_RE
 import config as cfgmod
+import git_brain
 import engine
 import openai_oauth
 import mcp_store
@@ -935,43 +936,28 @@ async def memory_stats(brain: str = Query("brain")):
 
 @app.post("/reflect")
 async def reflect(brain: str = Form("brain")):
-    """Vòng tự học: Javis đọc hội thoại gần đây → rút ký ức bền vững → ghi vào Memory của vault."""
-    cli = ClaudeCLI(system_prompt=SYSTEM_PROMPT, cwd=CLAUDE_CWD)
-    if not cli.is_available():
+    """Nút 'Học từ hội thoại' (THỦ CÔNG): rút Memory + đúc Wiki từ hội thoại gần đây.
+
+    Phase 0 (an toàn): KHÔNG còn spawn Claude full-quyền như trước. Đi qua engine learn.py:
+    fork READ-ONLY cô lập (0 MCP, không Bash/Web) → manifest → Python tin cậy ghi; fail-closed
+    qua git (git-init khi bấm) + secret-scan trước commit. force_write=True vì đây là chủ đích
+    của user (ghi bất kể mode dry-run), caps = memory+wiki (skill giữ off, dựng ở Phase 3)."""
+    if not find_claude_cli():
         return {"ok": False, "error": "Claude CLI chưa cài"}
-
-    mem = _brain_memory_dir(brain)
-    conv_dir = mem / "conversations"
-    facts_dir = mem / "facts"
-    index = mem / "MEMORY.md"
-    vault_root = mem.parent
-    wiki_dir = _resolve_subfolder(str(vault_root), r"^(\d+\s*[-_.]\s*)?wiki$", "Wiki")
-    conv_today = conv_dir / f"{__import__('datetime').date.today().strftime('%Y-%m-%d')}.md"
-    prompt = (
-        "VÒNG TỰ HỌC. Hãy:\n"
-        f"1) Đọc log hội thoại gần đây: {conv_today} (nếu không có thì đọc file mới nhất trong {conv_dir}).\n"
-        f"2) Đọc chỉ mục bộ nhớ hiện tại: {index}\n"
-        "3) Rút ra các SỰ THẬT BỀN VỮNG đáng nhớ (về user, doanh nghiệp, sở thích cách làm việc, quyết định đã chốt). "
-        "Bỏ qua chuyện nhất thời. Bỏ qua điều đã có trong bộ nhớ.\n"
-        f"4) Với mỗi ký ức MỚI: tạo 1 file trong {facts_dir} (theo format trong CLAUDE.md) và thêm 1 dòng vào {index}.\n"
-        "5) Nếu phát hiện ký ức trùng/cũ/sai: gộp hoặc cập nhật, đừng nhân bản.\n"
-        f"6) ĐÚC KẾT TRI THỨC: nếu hội thoại có KHÁI NIỆM / framework / nguyên lý / quy trình TÁI SỬ DỤNG được "
-        f"(không phải thông tin cá nhân nhất thời), hãy chưng cất vào Wiki tại folder \"{wiki_dir}\": "
-        f"tạo note mới (1 khái niệm = 1 file) hoặc cập nhật note đã có, frontmatter type: wiki, có wikilink [[...]] tới khái niệm liên quan. "
-        f"Nếu vault có CLAUDE.md riêng (đọc {vault_root}/CLAUDE.md nếu có) thì TUÂN THEO quy ước Wiki trong đó. "
-        "Mục tiêu: tri thức tích luỹ dần, làm dày bộ não. Đừng tạo Wiki rỗng/trùng.\n"
-        "Cuối cùng, báo cáo NGẮN GỌN tiếng Việt: học thêm mấy ký ức + đúc kết mấy khái niệm Wiki (tên). Nếu không có gì mới, nói 'Không có gì mới'."
-    )
-
-    final = ""
-    async for ev in cli.query(prompt):
-        if ev["type"] == "final":
-            final = ev.get("content", "")
-        elif ev["type"] == "error":
-            return {"ok": False, "error": ev["content"][:300]}
-
-    facts = len(list(facts_dir.glob("*.md")))
-    return {"ok": True, "summary": final, "facts": facts}
+    g = git_brain.ensure_git_repo(_brain_root(brain))   # consent thủ công → git-init để undo được
+    res = await learn_feature.run_once(
+        brain, reason="reflect", force_write=True,
+        caps_override={"memory": True, "wiki": True, "skill": False})
+    facts = 0
+    try:
+        facts = len(list((_brain_memory_dir(brain) / "facts").glob("*.md")))
+    except Exception:
+        pass
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("error", "reflect lỗi"), "git": g}
+    rep = res.get("report", {})
+    return {"ok": True, "summary": res.get("summary", ""), "facts": facts,
+            "status": res.get("status", ""), "report": rep, "git": g}
 
 
 @app.get("/health")
@@ -2148,12 +2134,35 @@ async def run_loop_cycle(reason="manual"):
     return await loop_feature.run_cycle(reason)
 
 
+# ============================================================
+# ENGINE TỰ HỌC (learn.py) - rewire sau lượt + auto-Wiki + skill + curator.
+# READ-ONLY fork trả manifest JSON; Python tin cậy ghi; fail-closed qua git.
+# Mặc định enabled=False, mode=dry-run → bật an toàn.
+# ============================================================
+import learn as learn_mod
+
+learn_feature = learn_mod.register(app, learn_mod.LearnDeps(
+    build_system_prompt=build_system_prompt,
+    brain_root=_brain_root,
+    brain_memory_dir=_brain_memory_dir,
+    resolve_subfolder=_resolve_subfolder,
+    aux_model=_aux_model,
+    atomic_write_text=_atomic_write_text,
+    sessions_store=get_store(),
+    state_dir=cfgmod.STATE_DIR,
+    readonly_tools=READONLY_TOOLS,
+))
+
 
 @app.get("/lint")
 async def lint(brain: str = Query("brain")):
     """LINT - health-check Wiki (chỉ đọc, không sửa). Trả danh sách 8 loại vấn đề."""
     cli = ClaudeCLI(system_prompt=SYSTEM_PROMPT, cwd=_brain_root(brain), tag="lint",
                     allowed_tools=READONLY_TOOLS)
+    _mcpf = _empty_mcp_file()
+    if _mcpf:
+        cli.mcp_config = _mcpf; cli.mcp_strict = True
+    cli.disallowed_tools = ["Bash", "WebFetch", "WebSearch", "Task"]
     if not cli.is_available():
         return {"ok": False, "error": "Claude CLI chưa cài"}
     prompt = (
@@ -2343,13 +2352,19 @@ async def _start_scheduler():
         while True:
             try:
                 await asyncio.sleep(30)
+                # 1) Vòng tự cải thiện (loop cũ)
                 cfg = _read_loop_config()
-                if not cfg.get("enabled") or _LOOP_LOCK.locked():
-                    continue
-                interval = max(5, int(cfg.get("interval_min", 60))) * 60
-                if time.time() - float(cfg.get("last_run", 0)) >= interval:
-                    print("[loop] đến giờ chạy vòng tự cải thiện", file=__import__('sys').stderr)
-                    await run_loop_cycle("scheduled")
+                if cfg.get("enabled") and not _LOOP_LOCK.locked():
+                    interval = max(5, int(cfg.get("interval_min", 60))) * 60
+                    if time.time() - float(cfg.get("last_run", 0)) >= interval:
+                        print("[loop] đến giờ chạy vòng tự cải thiện", file=__import__('sys').stderr)
+                        await run_loop_cycle("scheduled")
+                # 2) Engine tự học: debounce tick (rewire sau lượt) + curator định kỳ
+                try:
+                    await learn_feature.tick()
+                    await learn_feature.curator_tick()
+                except Exception as le:
+                    print(f"[learn tick] {type(le).__name__}: {le}", file=__import__('sys').stderr)
             except Exception as e:
                 print(f"[scheduler] {type(e).__name__}: {e}", file=__import__('sys').stderr)
     asyncio.create_task(_scheduler_loop())
@@ -3076,6 +3091,12 @@ async def websocket_endpoint(ws: WebSocket):
                 store.append_message(conv_sid, "assistant", final_text)
                 store.auto_title(conv_sid, user_message)
                 log_conversation(brain, user_message, final_text)
+                # Rewire: đưa lượt vào hàng đợi học (non-blocking; gate/debounce/rate-limit ở learn.py).
+                # Đi theo guard `if final_text` sẵn có → lượt rỗng/lỗi cố ý không enqueue.
+                try:
+                    asyncio.create_task(learn_feature.enqueue(brain, conv_sid, user_message, final_text))
+                except Exception as _e:
+                    print(f"[learn enqueue hook] {_e}", file=__import__('sys').stderr)
 
     except WebSocketDisconnect:
         pass

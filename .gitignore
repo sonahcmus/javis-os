@@ -13,6 +13,7 @@ __pycache__/
 test_output*.mp3
 server/*.log
 server/loop_config.json
+server/learn_config.json
 server/settings.json
 server/.sessions.json
 server/mcp_servers.json
