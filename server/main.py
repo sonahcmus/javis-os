@@ -468,6 +468,16 @@ def _aux_model():
     """Alias Claude cho việc nền (loop/metrics/ingest). '' = không đổi (mặc định CLI)."""
     return (cfgmod.read_settings().get("model", {}).get("auxiliary") or {}).get("model") or ""
 
+def _codex_safe_model(model: str) -> str:
+    """Model hợp lệ cho Codex/ChatGPT-account. Model API thường (gpt-5-mini, gpt-4o, o3...)
+    KHÔNG chạy được qua Codex → coerce về model Codex trong catalog (mặc định gpt-5.5).
+    Hợp lệ = nằm trong catalog 'openai-oauth' HOẶC kết thúc '-codex'."""
+    m = (model or "").strip()
+    cat = (cfgmod.read_settings().get("model", {}).get("catalog", {}).get("openai-oauth")) or ["gpt-5.5"]
+    if m and (m in cat or m.endswith("-codex")):
+        return m
+    return cat[0]
+
 def _chat_provider(mcfg):
     """Provider dùng cho chat (id, kind, key, model) - từ model chính hiệu lực."""
     em = _effective_main({"model": mcfg})
@@ -487,7 +497,8 @@ def _api_stream(prov, key, model, messages, reasoning="off"):
         return engine.openai_stream(key, model, messages, reasoning)
     if prov == "openai-oauth":
         creds = openai_oauth.valid_creds() or {}
-        return engine.openai_responses_stream(creds.get("access_token", ""), creds.get("account_id", ""), model, messages, reasoning)
+        return engine.openai_responses_stream(creds.get("access_token", ""), creds.get("account_id", ""),
+                                              _codex_safe_model(model), messages, reasoning)
     return engine.anthropic_stream(key, model, messages, reasoning)
 
 
@@ -3211,7 +3222,14 @@ async def websocket_endpoint(ws: WebSocket):
             final_text = ""
             if prov == "openai-oauth":
                 # ===== ChatGPT subscription qua CODEX CLI - MCP/tool NATIVE (như Hermes, dùng codex của máy) =====
-                actual_model = api_model or "gpt-5.5"
+                actual_model = _codex_safe_model(api_model)   # gpt-5-mini/gpt-4o... → coerce về model Codex hợp lệ
+                if api_model and actual_model != api_model:
+                    # Tự chữa: model đã lưu không hợp lệ cho Codex → ghi lại model đúng (converge sau 1 lượt)
+                    try:
+                        _fix = cfgmod.read_settings(); _set_main_model(_fix, "openai-oauth", actual_model); cfgmod.write_settings(_fix)
+                        await ws.send_text(json.dumps({"type": "system", "content": f"⚠ Model '{api_model}' không chạy được qua Codex (tài khoản ChatGPT) - đã tự đổi sang '{actual_model}'. Đổi model khác ở trang Models nếu muốn."}))
+                    except Exception as _e:
+                        print(f"[codex model self-heal] {_e}", file=__import__('sys').stderr)
                 openai_oauth.write_codex_auth()   # bắc cầu token đã nối ở Models → ~/.codex/auth.json (codex dùng được)
                 ccli = CodexCLI(cwd=CLAUDE_CWD, model=actual_model, tag="chat")
                 ccli.profile = _write_codex_profile()   # đẩy MCP của Javis (POSCake...) sang codex
