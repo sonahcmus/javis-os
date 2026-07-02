@@ -1740,7 +1740,7 @@ async def save_agent(name: str = Form(...), role: str = Form(""), skills: str = 
     slug = slug or _slugify(name)
     skills_list = [s.strip() for s in re.split(r"[,\n]", skills) if s.strip()]
     meta = {"type": "agent", "name": name, "slug": slug, "role": role,
-            "skills": skills_list, "model": model or "sonnet", "updated": _today()}
+            "skills": skills_list, "model": model, "updated": _today()}  # "" = mặc định theo CLI
     _write_md(_agents_dir(brain) / f"{slug}.md", meta, (prompt.strip() or role))
     return {"ok": True, "slug": slug}
 
@@ -2065,8 +2065,11 @@ async def execute_workflow(brain, slug, input="", tools=None):
     steps = meta.get("steps", []) or []
     vault_root = str(_brain_root(brain))
 
-    def _mk(sysprompt):
+    def _mk(sysprompt, model=None):
         c = ClaudeCLI(system_prompt=sysprompt, cwd=vault_root, tag="workflow", allowed_tools=tools)
+        # Model của AGENT (chọn ở Studio: sonnet/opus/haiku/fable) được ÁP THẬT vào CLI.
+        # Rỗng → dùng model phụ (việc nền) nếu có, cuối cùng None = mặc định CLI.
+        c.model = (model or _aux_model() or None)
         if tools is not None:   # chạy nền hạn chế → cô lập MCP + chặn Bash/Web
             _mcpf = _empty_mcp_file()
             if _mcpf:
@@ -2084,7 +2087,7 @@ async def execute_workflow(brain, slug, input="", tools=None):
             + (f"\n# Bộ nhớ của bạn:\n{amem}\n" if amem else "")
             + "\nLàm việc trong vault. Tập trung hoàn thành nhiệm vụ, trả kết quả rõ ràng, ngắn gọn."
         )
-        return ameta.get("name", aslug), sysprompt
+        return ameta.get("name", aslug), sysprompt, (ameta.get("model") or "").strip() or None
 
     yield {"type": "start", "workflow": meta.get("name", slug), "steps": len(steps)}
     prev = ""
@@ -2093,7 +2096,7 @@ async def execute_workflow(brain, slug, input="", tools=None):
         task = step.get("task", "")
         verify_slug = (step.get("verify_agent") or "").strip()
         max_retries = int(step.get("max_retries", 1) or 0)
-        agent_name, sysprompt = _agent_sysprompt(agent_slug)
+        agent_name, sysprompt, agent_model = _agent_sysprompt(agent_slug)
         task_f = task.replace("{{input}}", input or "").replace("{{prev}}", prev or "")
         yield {"type": "step_start", "i": i, "agent": agent_name, "task": task_f}
 
@@ -2102,7 +2105,7 @@ async def execute_workflow(brain, slug, input="", tools=None):
         verified = None
         attempt = 0
         while True:
-            gcli = _mk(sysprompt)
+            gcli = _mk(sysprompt, agent_model)   # áp model agent đã chọn
             out = ""
             async for ev in gcli.query(cur_prompt):
                 if ev["type"] == "text":
@@ -2118,7 +2121,7 @@ async def execute_workflow(brain, slug, input="", tools=None):
                 break
 
             # --- KIỂM CHỨNG bằng agent KHÁC (giả định kết quả SAI) ---
-            v_name, v_body = _agent_sysprompt(verify_slug)
+            v_name, v_body, v_model = _agent_sysprompt(verify_slug)
             yield {"type": "step_verify", "i": i, "agent": v_name, "attempt": attempt}
             v_sys = (
                 v_body + "\n\nVAI TRÒ KIỂM CHỨNG: Bạn là người ĐÁNH GIÁ độc lập. "
@@ -2131,7 +2134,7 @@ async def execute_workflow(brain, slug, input="", tools=None):
                 f"KẾT QUẢ CẦN KIỂM CHỨNG:\n{out}\n\n"
                 "Đánh giá kết quả có ĐẠT nhiệm vụ không. Trả JSON như hướng dẫn."
             )
-            vcli = _mk(v_sys)
+            vcli = _mk(v_sys, v_model)   # agent kiểm chứng cũng dùng model của nó
             v_out = ""
             async for ev in vcli.query(v_prompt):
                 if ev["type"] == "final":
