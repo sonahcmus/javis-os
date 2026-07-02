@@ -2148,6 +2148,16 @@ async def _loop_notify(text: str) -> None:
         print(f"[loop notify] {e}", file=__import__('sys').stderr)
 
 
+def _loop_mcp_allow():
+    """Pattern MCP cho allowlist của loop: 'mcp__<server>' mỗi server bật (bỏ oauth).
+    Thêm vào --allowedTools để loop GỌI được tool MCP (Bash/Web/Task vẫn ngoài list → chặn)."""
+    try:
+        return [f"mcp__{s['name']}" for s in mcp_store.list_servers()
+                if s.get("enabled") and s.get("auth") != "oauth" and s.get("name")]
+    except Exception:
+        return []
+
+
 loop_feature = self_improve.register(app, self_improve.LoopDeps(
     build_system_prompt=build_system_prompt,
     metrics=metrics,
@@ -2159,6 +2169,8 @@ loop_feature = self_improve.register(app, self_improve.LoopDeps(
     safe_tools=SAFE_FILE_TOOLS,
     readonly_tools=READONLY_TOOLS,
     notify=_loop_notify,
+    apply_mcp=_apply_mcp,               # loop ĐỌC được dữ liệu thật qua MCP Javis-quản-lý
+    mcp_allow_patterns=_loop_mcp_allow,
 ))
 
 _LOOP_LOCK = loop_feature.lock   # shim: giữ tên cũ cho code phía dưới (scheduler/automations)

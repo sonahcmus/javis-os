@@ -435,17 +435,11 @@
     const myGen = _renderGen;   // chống race: đổi trang → mọi loadLoops/loadLog dở tự bỏ
     let pollTimer = null;       // 1 chuỗi poll duy nhất (clearTimeout trước khi đặt lại)
     el.innerHTML = `<div class="cview-section"><div class="empty">Đang tải...</div></div>`;
-    const GOALS = [
-      ["business", "Kinh doanh", "Đọc số liệu thật → soạn nháp content/khuyến mãi/lead cần gọi lại (chỉ nháp để duyệt)"],
-      ["brain", "Bộ não (Wiki)", "Ingest source mới, trả lời open-question, sửa lỗi Wiki"],
-      ["product", "Cải thiện Javis", "Đọc hội thoại → đề xuất/tạo agent, workflow, cải tiến UX"],
-      ["custom", "Tự định nghĩa", "Bạn mô tả nhiệm vụ cụ thể trong thân loop"],
-    ];
-    const GNAME = {}; GOALS.forEach(g => GNAME[g[0]] = g[1]);
+    const GNAME = { business: "Kinh doanh", brain: "Bộ não", product: "Cải thiện Javis", custom: "Tự định nghĩa" };
     const fmtT = ts => ts ? new Date(ts * 1000).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "-";
 
     el.innerHTML = `<div class="cview-section">
-      <p style="color:#9fb0cf;font-size:15px;max-width:680px;margin:0 0 14px">Nhiều <b>loop</b> chạy ngầm: mỗi loop tự thức theo chu kỳ, làm <b>một việc cụ thể</b>, tự kiểm chứng độc lập rồi ghi log. Thực thi <b>tuần tự</b> (1 vòng/lúc). An toàn mặc định: chỉ thao tác FILE trong vault - KHÔNG MCP tiền/đơn/đăng bài. Loop bật sẽ hiện ở tab <b>Lịch</b>.</p>
+      <p style="color:#9fb0cf;font-size:15px;max-width:680px;margin:0 0 14px">Nhiều <b>loop</b> chạy ngầm: mỗi loop tự thức theo chu kỳ, làm <b>một việc</b> anh mô tả, tự kiểm chứng rồi ghi log. Thực thi <b>tuần tự</b> (1 vòng/lúc). Loop <b>đọc được dữ liệu thật qua MCP</b> (POS, quảng cáo, lịch...) để làm việc, nhưng KHÔNG tự tạo đơn/tiêu tiền/đăng bài - chỉ ghi nháp để anh duyệt. Loop bật sẽ hiện ở tab <b>Lịch</b>.</p>
       <div class="si-actions" style="margin-bottom:14px">
         <button class="s-btn" id="lpNew">+ Loop mới</button>
         <button class="s-btn-ghost" id="lpStop">■ Dừng vòng đang chạy</button>
@@ -454,24 +448,15 @@
         <input type="hidden" id="lpSlug">
         <div class="si-grid">
           <div class="si-field"><label>Tên loop</label><input id="lpName" placeholder="VD: Đọc source mỗi 2 tiếng"></div>
-          <div class="si-field"><label>Loại nhiệm vụ</label><div class="si-row" id="lpGoals">${GOALS.map(([v, l]) => `<button class="si-chip" data-goal="${v}">${l}</button>`).join("")}</div>
-            <div class="dim" id="lpGoalDesc" style="font-size:13px;margin-top:6px;color:#7d8aa6"></div></div>
-          <div class="si-field" id="lpBodyWrap"><label>Mô tả nhiệm vụ (thân loop - bắt buộc khi Tự định nghĩa)</label>
-            <textarea id="lpBody" placeholder="VD: Mỗi vòng đọc 1 source unprocessed trong 06 - Sources rồi đề xuất Wiki page nên tạo."></textarea></div>
-          <div class="si-field"><label>Chế độ</label><div class="si-row" id="lpModes">
-            <button class="si-chip" data-mode="suggest">Đề xuất</button>
-            <button class="si-chip" data-mode="auto">Tự làm + kiểm chứng</button></div></div>
+          <div class="si-field"><label>Mô tả nhiệm vụ (mỗi vòng Javis làm đúng việc này)</label>
+            <textarea id="lpBody" placeholder="VD: Mỗi vòng đọc 1 source chưa xử lý trong 06 - Sources rồi đề xuất Wiki page nên tạo. Hoặc: đọc số đơn hôm nay qua MCP POS, nếu thấp thì soạn nháp 1 caption đẩy hàng vào 05 - Projects."></textarea></div>
           <div class="si-row" style="gap:14px;flex-wrap:wrap">
-            <div class="si-field"><label>Chu kỳ (phút, tối thiểu 5)</label><input type="number" id="lpInterval" min="5" value="60" style="max-width:120px"></div>
-            <div class="si-field"><label>Giờ im lặng (vd 23-07, rỗng = chạy mọi giờ)</label><input id="lpQuiet" placeholder="23-07" style="max-width:120px"></div>
-            <div class="si-field"><label>Tối đa vòng/ngày (0 = không giới hạn)</label><input type="number" id="lpMaxRuns" min="0" value="0" style="max-width:120px"></div>
+            <div class="si-field"><label>Chế độ</label><div class="si-row" id="lpModes">
+              <button class="si-chip" data-mode="suggest">Đề xuất (chỉ đọc)</button>
+              <button class="si-chip" data-mode="auto">Tự làm + kiểm chứng</button></div></div>
+            <div class="si-field"><label>Chu kỳ (phút, tối thiểu 5)</label><input type="number" id="lpInterval" min="5" value="120" style="max-width:120px"></div>
           </div>
-          <div class="si-row" style="gap:14px;flex-wrap:wrap">
-            <div class="si-field" style="flex:1;min-width:240px"><label>Workspace ("vault" hoặc đường dẫn tuyệt đối)</label><input id="lpWorkspace" value="vault"></div>
-            <div class="si-field"><label>Quyền công cụ</label><select id="lpProfile" class="loop-sel">
-              <option value="vault-safe">vault-safe - chỉ file .md, 0 MCP (mặc định)</option>
-              <option value="code">code - thêm Bash/Web, vẫn 0 MCP (cho loop sửa code)</option></select></div>
-          </div>
+          <div class="dim" style="font-size:12px;color:#6b7894;margin-top:2px">Cần tinh chỉnh nâng cao (giờ im lặng, trần vòng/ngày, chạy trên thư mục code)? Sửa trực tiếp file <code>Javis/loops/&lt;tên&gt;.md</code> trong Obsidian.</div>
           <div class="si-actions"><button class="s-btn" id="lpSave">💾 Lưu loop</button><button class="s-btn-ghost" id="lpCancel">Huỷ</button><span class="dim" id="lpFormMsg" style="font-size:13px;color:#e0a04a"></span></div>
         </div>
       </div>
@@ -479,26 +464,18 @@
       <div class="si-log"><h3 style="font-size:15px;color:#cdd8ee">Nhật ký gần đây · <select id="lpLogFilter" class="loop-sel" style="font-size:13px"><option value="">Tất cả loop</option></select></h3><div id="lpLog">Đang tải...</div></div>
     </div>`;
 
-    let fcur = { goal: "brain", mode: "suggest" };
-    const goalDescEl = el.querySelector("#lpGoalDesc");
+    let fcur = { mode: "suggest" };
     function syncFormChips() {
-      el.querySelectorAll("#lpGoals .si-chip").forEach(x => x.classList.toggle("sel", x.dataset.goal === fcur.goal));
       el.querySelectorAll("#lpModes .si-chip").forEach(x => x.classList.toggle("sel", x.dataset.mode === fcur.mode));
-      goalDescEl.textContent = (GOALS.find(g => g[0] === fcur.goal) || GOALS[0])[2];
     }
-    el.querySelectorAll("#lpGoals .si-chip").forEach(c => c.onclick = () => { fcur.goal = c.dataset.goal; syncFormChips(); });
     el.querySelectorAll("#lpModes .si-chip").forEach(c => c.onclick = () => { fcur.mode = c.dataset.mode; syncFormChips(); });
 
     function openForm(lp) {
-      fcur = { goal: lp ? lp.goal : "brain", mode: lp ? lp.mode : "suggest" };
+      fcur = { mode: lp ? lp.mode : "suggest" };
       el.querySelector("#lpSlug").value = lp ? lp.slug : "";
       el.querySelector("#lpName").value = lp ? lp.name : "";
       el.querySelector("#lpBody").value = lp ? (lp.body || "") : "";
-      el.querySelector("#lpInterval").value = lp ? lp.interval_min : 60;
-      el.querySelector("#lpQuiet").value = lp ? (lp.quiet_hours || "") : "";
-      el.querySelector("#lpMaxRuns").value = lp ? (lp.max_runs_per_day || 0) : 0;
-      el.querySelector("#lpWorkspace").value = lp ? (lp.workspace || "vault") : "vault";
-      el.querySelector("#lpProfile").value = lp ? (lp.tools_profile || "vault-safe") : "vault-safe";
+      el.querySelector("#lpInterval").value = lp ? lp.interval_min : 120;
       el.querySelector("#lpFormMsg").textContent = "";
       syncFormChips();
       el.querySelector("#lpForm").style.display = "block";
@@ -509,18 +486,18 @@
 
     el.querySelector("#lpSave").onclick = async () => {
       const name = el.querySelector("#lpName").value.trim();
+      const body = el.querySelector("#lpBody").value.trim();
       if (!name) { el.querySelector("#lpFormMsg").textContent = "Nhập tên loop"; return; }
+      if (!body) { el.querySelector("#lpFormMsg").textContent = "Nhập mô tả nhiệm vụ (Javis cần biết mỗi vòng làm gì)"; return; }
       const fd = new FormData();
       fd.append("slug", el.querySelector("#lpSlug").value);
       fd.append("name", name);
-      fd.append("goal", fcur.goal); fd.append("mode", fcur.mode);
-      fd.append("interval_min", el.querySelector("#lpInterval").value || "60");
-      fd.append("quiet_hours", el.querySelector("#lpQuiet").value.trim());
-      fd.append("max_runs_per_day", el.querySelector("#lpMaxRuns").value || "0");
-      fd.append("workspace", el.querySelector("#lpWorkspace").value.trim() || "vault");
-      fd.append("tools_profile", el.querySelector("#lpProfile").value);
-      fd.append("body", el.querySelector("#lpBody").value);
+      fd.append("mode", fcur.mode);
+      fd.append("interval_min", el.querySelector("#lpInterval").value || "120");
+      fd.append("body", body);
       fd.append("brain", fbrain());
+      // Không gửi goal/workspace/tools_profile/quiet/maxruns → server giữ giá trị cũ (khi sửa)
+      // hoặc mặc định an toàn (tạo mới: goal=custom, vault + MCP đọc).
       const b = el.querySelector("#lpSave"); b.textContent = "Đang lưu...";
       let r = {}; try { r = await (await fetch("/loops", { method: "POST", body: fd })).json(); } catch (e) { r = { error: e.message }; }
       b.textContent = "💾 Lưu loop";
@@ -541,7 +518,8 @@
       const last = lp.last_run ? `lần cuối ${fmtT(lp.last_run)}` : "chưa chạy";
       const next = (lp.enabled && !paused && lp.next_run) ? ` · kế tiếp ~${fmtT(lp.next_run)}` : "";
       const extra = [
-        `${GNAME[lp.goal] || lp.goal} · ${lp.mode === "auto" ? "tự làm" : "đề xuất"} · mỗi ${lp.interval_min} phút`,
+        `${lp.mode === "auto" ? "tự làm" : "đề xuất"} · mỗi ${lp.interval_min} phút`,
+        (lp.goal && lp.goal !== "custom") ? (GNAME[lp.goal] || lp.goal) : "",
         lp.quiet_hours ? `im lặng ${lp.quiet_hours}` : "",
         lp.max_runs_per_day ? `tối đa ${lp.max_runs_per_day}/ngày (đã ${lp.runs_today})` : "",
         lp.tools_profile === "code" ? `⚙ code · ${esc(lp.workspace)}` : "",

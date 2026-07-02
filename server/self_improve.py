@@ -20,12 +20,15 @@ Triết lý MỖI VÒNG giữ nguyên bản gốc: Javis tự thức theo lịch
 tự kiểm chứng độc lập (mode=auto, giả định kết quả SAI), ghi log Javis/loop-log/.
 
 An toàn theo tools_profile:
-  - "vault-safe" (mặc định): giữ nguyên _isolate() bản gốc - 0 MCP (file rỗng + strict),
-    cấm Bash/WebFetch/WebSearch/Task, cwd ghim vault, chỉ thao tác file .md.
-  - "code" (CHỈ khi user chỉ định rõ): mở Bash/WebFetch/WebSearch, cwd = workspace,
-    VẪN 0 MCP (fail-closed: không tạo được file MCP rỗng thì từ chối chạy)
-    → không bao giờ đụng được MCP tiền/đơn. Kiểm chứng thêm tiêu chí: diff nhỏ,
-    py_compile / node --check phải sạch.
+  - "vault-safe" (MẶC ĐỊNH): file tools + MCP do Javis quản lý (POS/ads/lịch...) - loop ĐỌC
+    được dữ liệu thật để làm việc. cwd ghim vault. Bash/WebFetch/WebSearch/Task NGOÀI allowlist
+    → bị chặn. Chống hành động tiền/đơn qua MCP bằng 3 lớp: (a) deny_tools per-server của MCP
+    (apply_mcp gắn --disallowedTools), (b) chỉ dẫn CỨNG trong prompt (_MCP_SAFETY: đọc OK,
+    cấm tạo đơn/tiêu tiền/quảng cáo/đăng bài/gửi tin), (c) mode suggest = chỉ tool đọc, và
+    kiểm chứng độc lập (mode auto) fail nếu phát hiện hành động ghi ra ngoài qua MCP.
+  - "code" (CHỈ đặt qua .md, nâng cao): mở Bash/WebFetch/WebSearch, cwd = workspace, VẪN 0 MCP
+    (fail-closed: không tạo được file MCP rỗng thì từ chối chạy) → cho loop sửa mã repo an toàn.
+    Kiểm chứng thêm tiêu chí: diff nhỏ, py_compile / node --check phải sạch.
 
 Tương thích ngược: /loop/* cũ là shim trỏ về loop legacy slug "vong-lap-goc" (migrate
 một lần từ loop_config.json - giữ nguyên toàn bộ custom_goal vào thân file, không xoá
@@ -53,6 +56,15 @@ from claude_cli import ClaudeCLI, cancel_all, _empty_mcp_file
 
 LEGACY_SLUG = "vong-lap-goc"
 GOALS = ("business", "brain", "product", "custom")
+
+# Chỉ dẫn an toàn CỨNG cho mọi loop có MCP (mặc định): được ĐỌC, cấm hành động ghi ra ngoài.
+# Loop chạy nền tự động nên tuyệt đối không được tự tiêu tiền / tạo đơn / đăng bài.
+_MCP_SAFETY = (
+    "⛔ AN TOÀN (BẮT BUỘC): Bạn ĐƯỢC dùng MCP để ĐỌC dữ liệu thật (POS, quảng cáo, lịch, "
+    "analytics...) phục vụ nhiệm vụ. TUYỆT ĐỐI KHÔNG dùng MCP để tạo/sửa/huỷ đơn hàng, tạo/sửa/"
+    "bật/tắt quảng cáo, tiêu tiền, chuyển khoản, gửi tin nhắn/email, hay đăng bài - những việc đó "
+    "CHỈ chủ mới quyết. Kết quả chỉ được là NHÁP ghi vào file trong vault để chủ duyệt.\n"
+)
 
 
 def _now_vn() -> datetime:
@@ -111,6 +123,8 @@ class LoopDeps:
     safe_tools: List[str]
     readonly_tools: List[str]
     notify: Optional[Callable] = None        # async notify(text) - báo Telegram khi auto-pause (tùy chọn)
+    apply_mcp: Optional[Callable] = None      # apply_mcp(cli): gắn MCP Javis-quản-lý (config+strict+deny) - loop ĐỌC được dữ liệu thật
+    mcp_allow_patterns: Optional[Callable] = None  # () -> ["mcp__<server>", ...] để thêm vào allowlist (MCP mới gọi được)
 
 
 class LoopFeature:
@@ -502,8 +516,8 @@ class LoopFeature:
                 "Đọc thêm context trong vault (Wiki marketing/sales/funnel/content, data cache, projects) để hiểu bối cảnh. "
                 "Xác định CHỈ SỐ YẾU NHẤT hoặc đòn bẩy lớn nhất, rồi đề ra 1 hành động khả thi TUẦN NÀY để cải thiện nó "
                 "(vd: ý tưởng + caption content nháp, khung email, kịch bản khuyến mãi, điểm tối ưu funnel, danh sách lead cần gọi lại).\n"
-                "⛔ AN TOÀN: bạn CHỈ được thao tác FILE .md. TUYỆT ĐỐI KHÔNG gọi MCP để tạo đơn, tạo/sửa quảng cáo, đăng bài, "
-                "gửi email hay tiêu tiền. Mọi thứ chỉ là NHÁP để chủ duyệt.\n"
+                "Có thể đọc thêm số liệu chi tiết qua MCP nếu cần.\n"
+                + _MCP_SAFETY
             )
             if mode == "auto":
                 return base + (
@@ -519,7 +533,8 @@ class LoopFeature:
                 "MỤC TIÊU: TỰ CẢI THIỆN JAVIS hữu dụng hơn với người dùng.\n"
                 "Đọc log hội thoại gần đây (Memory/conversations) + các agent/workflow trong Javis/ + ghi chú phản hồi. "
                 "Nhận diện: người dùng hay vướng gì, yêu cầu lặp lại gì, thiếu agent/workflow/skill nào, chỗ nào gây khó. "
-                "⛔ AN TOÀN: CHỈ thao tác FILE trong vault, KHÔNG gọi MCP/tiền/đơn, KHÔNG sửa code server.\n"
+                "KHÔNG sửa code server.\n"
+                + _MCP_SAFETY
             )
             if mode == "auto":
                 return base + (
@@ -531,19 +546,19 @@ class LoopFeature:
             ), ""
         if goal == "custom":
             objective = (loop.get("body") or "").strip() or "Cải thiện vault theo cách hữu ích nhất bạn thấy."
+            # profile code: chạy trên workspace, 0 MCP. Mặc định: có MCP để đọc dữ liệu thật.
             safety = ("⛔ AN TOÀN: KHÔNG gọi MCP/tiền/đơn/đăng bài. Chỉ thao tác file trong workspace được giao.\n"
-                      if loop["tools_profile"] == "code" else
-                      "⛔ AN TOÀN: CHỈ thao tác FILE trong vault, KHÔNG gọi MCP/tiền/đơn.\n")
-            base = f"MỤC TIÊU TỰ ĐỊNH NGHĨA: {objective}\n{safety}"
-            return base + ("Thực hiện 1 bước cụ thể cho mục tiêu trên rồi báo cáo ngắn." if mode == "auto"
-                           else "CHẾ ĐỘ ĐỀ XUẤT - chỉ đọc. Đề xuất 2-3 hành động cụ thể cho mục tiêu trên."), ""
+                      if loop["tools_profile"] == "code" else _MCP_SAFETY)
+            base = f"NHIỆM VỤ CỦA LOOP NÀY (làm ĐÚNG 1 lần mỗi vòng rồi dừng):\n{objective}\n{safety}"
+            return base + ("Thực hiện 1 bước cụ thể cho nhiệm vụ trên rồi báo cáo ngắn (làm gì, chạm file nào)." if mode == "auto"
+                           else "CHẾ ĐỘ ĐỀ XUẤT - chỉ đọc, không ghi file. Đề xuất 2-3 hành động cụ thể cho nhiệm vụ trên."), ""
         # goal == brain - làm dày bộ não
         if mode == "auto":
             return (
-                "VÒNG TỰ CẢI THIỆN (làm dày bộ não, chế độ TỰ LÀM). Bạn CHỈ được thao tác FILE trong vault. "
-                "TUYỆT ĐỐI không gọi MCP/tiền bạc/đơn hàng.\n"
+                "VÒNG TỰ CẢI THIỆN (làm dày bộ não, chế độ TỰ LÀM).\n"
                 "Chọn ĐÚNG 1 việc giá trị nhất: (1) INGEST 1 source unprocessed, (2) trả lời 1 _open-question, "
                 "(3) sửa 1 lỗi Wiki (broken link/thiếu citation/orphan/trùng). TUÂN THỦ quy ước CLAUDE.md + cập nhật index.md & log.md.\n"
+                + _MCP_SAFETY +
                 "Báo cáo NGẮN: làm gì, chạm file nào. Nếu không có việc → 'Không có việc mới'."
             ), ""
         return (
@@ -553,7 +568,15 @@ class LoopFeature:
         ), ""
 
     def _make_cli(self, loop: dict, cwd: str, sysprompt: Optional[str], for_verify: bool = False) -> Optional[ClaudeCLI]:
-        """Dựng CLI theo tools_profile. Trả None nếu profile code không cô lập được MCP (fail-closed)."""
+        """Dựng CLI cho 1 vòng loop.
+        - profile 'code' (nâng cao, chỉ đặt qua .md): Bash/Web + file, cwd=workspace, VẪN 0 MCP
+          (fail-closed nếu không tạo được file MCP rỗng) - cho loop sửa mã repo.
+        - MẶC ĐỊNH (mọi loop tạo qua form): file tools + MCP do Javis quản lý (POS/ads/lịch...).
+          Loop ĐỌC được dữ liệu thật; ghi allowlist kèm 'mcp__<server>' để tool MCP gọi được.
+          KHÔNG có Bash/Web/Task (không nằm trong allowlist). An toàn tiền/đơn dựa vào:
+          (a) deny_tools per-server của MCP (apply_mcp gắn vào --disallowedTools),
+          (b) chỉ dẫn cứng trong prompt (đọc OK, cấm tạo đơn/tiêu tiền/đăng bài),
+          (c) mode suggest = chỉ tool đọc."""
         if loop["tools_profile"] == "code":
             mcpf = _empty_mcp_file()
             if not mcpf:
@@ -568,9 +591,20 @@ class LoopFeature:
             cli.mcp_strict = True
             cli.disallowed_tools = ["Task"]
         else:
-            tools = self.deps.readonly_tools if for_verify else (
+            base = self.deps.readonly_tools if for_verify else (
                 self.deps.safe_tools if loop["mode"] == "auto" else self.deps.readonly_tools)
-            cli = _isolate(ClaudeCLI(system_prompt=sysprompt, cwd=cwd, tag="loop", allowed_tools=tools))
+            tools = list(base)
+            # Thêm pattern MCP vào allowlist để loop GỌI được tool MCP (Bash/Web/Task vẫn ngoài list → chặn)
+            if self.deps.mcp_allow_patterns:
+                try:
+                    tools += list(self.deps.mcp_allow_patterns() or [])
+                except Exception:
+                    pass
+            cli = ClaudeCLI(system_prompt=sysprompt, cwd=cwd, tag="loop", allowed_tools=tools)
+            if self.deps.apply_mcp:
+                self.deps.apply_mcp(cli)   # gắn --mcp-config + strict + deny_tools per-server
+            else:
+                _isolate(cli)              # không có hook (vd unit test) → giữ 0-MCP như cũ
         cli.model = self.deps.aux_model() or None
         return cli
 
@@ -680,6 +714,9 @@ class LoopFeature:
                     criteria = "thay đổi có đúng quy ước Wiki không, có bịa/thiếu citation không, có làm hỏng link không"
                 else:
                     criteria = "kết quả có đúng mục tiêu không, có hợp lý/khả thi không, có bịa hay làm hỏng file nào không"
+                if loop["tools_profile"] != "code":
+                    criteria += ("; và TUYỆT ĐỐI KHÔNG có hành động tiền/đơn/quảng cáo/đăng bài/gửi tin qua MCP "
+                                 "(chỉ được đọc dữ liệu) - nếu có thì FAIL ngay")
                 vprompt = (
                     "Một vòng tự cải thiện vừa chạy. Kết quả của nó:\n" + summary + "\n\n"
                     f"Kiểm tra thực tế (đọc lại file liên quan): {criteria}. "
@@ -754,26 +791,35 @@ class LoopFeature:
         @router.post("/loops")
         async def loops_save(
             name: str = Form(...), slug: str = Form(""), enabled: str = Form(None),
-            goal: str = Form("brain"), mode: str = Form("suggest"), interval_min: str = Form("60"),
-            workspace: str = Form("vault"), tools_profile: str = Form("vault-safe"),
-            quiet_hours: str = Form(""), max_runs_per_day: str = Form("0"),
+            goal: str = Form(None), mode: str = Form("suggest"), interval_min: str = Form("60"),
+            workspace: str = Form(None), tools_profile: str = Form(None),
+            quiet_hours: str = Form(None), max_runs_per_day: str = Form(None),
             body: str = Form(""), brain: str = Form("brain"),
         ):
             self.ensure_migrated()
-            if goal not in GOALS:
-                return {"ok": False, "error": f"goal phải là 1 trong {'/'.join(GOALS)}"}
             if mode not in ("suggest", "auto"):
                 return {"ok": False, "error": "mode phải là suggest hoặc auto"}
-            if tools_profile not in ("vault-safe", "code"):
-                return {"ok": False, "error": "tools_profile phải là vault-safe hoặc code"}
-            ws = (workspace or "vault").strip() or "vault"
-            if ws != "vault" and not Path(ws).is_dir():
-                return {"ok": False, "error": f"workspace '{ws}' không tồn tại"}
             # Tra loop cũ theo slug NGUYÊN VĂN trước (stem tự do, vd tiếng Việt user tự đặt),
             # rồi mới thử bản ascii - để "Sửa" ghi đè đúng file gốc thay vì fork bản sao.
             raw = (slug or name).strip()
             old = self.get_loop(brain, raw) or self.get_loop(brain, _ascii_slug(raw))
             s = old["slug"] if old else _ascii_slug(raw)
+            # Form đơn giản (Tên + Mô tả) KHÔNG gửi goal/workspace/tools_profile/quiet/maxruns →
+            # giữ giá trị loop cũ (sửa), hoặc mặc định an toàn (tạo mới: goal=custom = freeform).
+            goal = goal or (old["goal"] if old else "custom")
+            if goal not in GOALS:
+                return {"ok": False, "error": f"goal phải là 1 trong {'/'.join(GOALS)}"}
+            tools_profile = tools_profile or (old["tools_profile"] if old else "vault-safe")
+            if tools_profile not in ("vault-safe", "code"):
+                return {"ok": False, "error": "tools_profile phải là vault-safe hoặc code"}
+            workspace = workspace if workspace is not None else (old["workspace"] if old else "vault")
+            ws = (workspace or "vault").strip() or "vault"
+            if ws != "vault" and not Path(ws).is_dir():
+                return {"ok": False, "error": f"workspace '{ws}' không tồn tại"}
+            if quiet_hours is None:
+                quiet_hours = old["quiet_hours"] if old else ""
+            if max_runs_per_day is None:
+                max_runs_per_day = str(old["max_runs_per_day"]) if old else "0"
             try:
                 iv = max(5, int(interval_min or 60))
             except ValueError:

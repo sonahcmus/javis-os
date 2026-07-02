@@ -36,21 +36,18 @@ type: loop
 name: <Tên hiển thị tiếng Việt>
 slug: <ascii-khong-dau>
 enabled: false            # mặc định TẮT khi tạo qua chat
-goal: brain               # business | brain | product | custom
-mode: suggest             # suggest = chỉ đề xuất | auto = tự làm + kiểm chứng
+mode: suggest             # suggest = chỉ đề xuất/đọc | auto = tự làm + kiểm chứng
 interval_min: 120         # tối thiểu 5
-workspace: vault          # vault | đường dẫn tuyệt đối (chỉ khi user chỉ định)
-tools_profile: vault-safe # vault-safe | code (chỉ khi user chỉ định rõ)
-quiet_hours: ""           # vd "23-07" = không chạy 23h..7h; rỗng = mọi giờ
-max_runs_per_day: 0       # 0 = không giới hạn
 updated: <YYYY-MM-DD>
 ---
-<goal=custom: thân file là prompt mục tiêu chi tiết; goal khác: ghi chú, có thể rỗng>
+<Mô tả nhiệm vụ: mỗi vòng Javis làm ĐÚNG việc này. Viết rõ, tự-đủ - đây chính là prompt của loop.>
 ```
+- Đây là format ĐƠN GIẢN (mặc định): thân file = mô tả việc loop làm mỗi vòng. Loop chạy nền mặc định **đọc được dữ liệu thật qua MCP** (POS/quảng cáo/lịch...) + thao tác file trong vault.
+- Trường nâng cao (KHÔNG bắt buộc, chỉ thêm khi user cần): `goal: business` (tự bơm số liệu KD mỗi vòng), `quiet_hours: "23-07"` (giờ im lặng), `max_runs_per_day: N`, `workspace: <path>` + `tools_profile: code` (loop sửa mã trên thư mục ngoài - Bash/Web, KHÔNG MCP).
 
 **An toàn khi điều phối:**
 - Loop do chat tạo mặc định `mode: suggest` + `enabled: false`. CHỈ bật ngay (`enabled: true`) khi user yêu cầu rõ.
-- `tools_profile` LUÔN là `vault-safe` trừ khi user chỉ định rõ profile code.
+- Loop ĐƯỢC dùng MCP để ĐỌC dữ liệu, nhưng TUYỆT ĐỐI KHÔNG được tạo/sửa đơn, tiêu tiền, chạy quảng cáo, gửi tin hay đăng bài tự động - chỉ ghi nháp để user duyệt. Nhắc rõ điều này trong mô tả nếu loop chạm dữ liệu tiền/đơn.
 - Hành động tiền / đơn hàng / đăng bài vẫn LUÔN hỏi user trước - không loop/task/workflow nào được tự làm.
 - Sau khi điều phối, báo cáo NGẮN bằng văn nói: đã quyết định gì, tạo file nào, chạy khi nào, theo dõi ở đâu. Không bảng, không em dash.
 
