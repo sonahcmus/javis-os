@@ -1493,6 +1493,11 @@ def _ensure_brain_scaffold(root):
         _brain_memory_dir(str(root))   # memory/ + MEMORY.md seed
     except Exception:
         pass
+    try:
+        import meta_tools
+        meta_tools.ensure_meta_tools(str(root))   # skill javis-builder + loop tự-cải-tiến (create-if-missing)
+    except Exception as e:
+        print(f"[meta tools seed] {e}", file=__import__('sys').stderr)
 
 
 def _ensure_default_brain():

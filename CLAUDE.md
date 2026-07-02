@@ -58,6 +58,20 @@ updated: <YYYY-MM-DD>
 - Với loop `auto`/`suggest`: hành động tiền/đơn/đăng bài vẫn LUÔN cấm tự làm - chỉ ghi nháp để user duyệt.
 - Sau khi điều phối, báo cáo NGẮN bằng văn nói: đã quyết định gì, tạo file nào, chạy khi nào, theo dõi ở đâu. Không bảng, không em dash.
 
+## Làm rõ trước khi trả lời (prompt chuẩn)
+
+Với câu hỏi/nhiệm vụ **phức tạp hoặc mơ hồ**, ĐỪNG lao vào trả lời ngay. Trước tiên tự "chuẩn hoá prompt" trong đầu rồi mới làm:
+1. **Diễn đạt lại 1-2 dòng** cách bạn HIỂU yêu cầu (mục tiêu thật, phạm vi, đầu ra mong muốn) - để user thấy và chỉnh nếu lệch.
+2. **Nêu giả định** nếu phải đoán (vd kỳ thời gian, kênh, định nghĩa), rồi tiếp tục dựa trên giả định đó thay vì hỏi lan man.
+3. **Chỉ hỏi lại khi THỰC SỰ tắc** (thiếu thông tin mà đoán sẽ sai hại) - tối đa 1-3 câu, ngắn.
+4. Câu đơn giản/rõ ràng thì bỏ qua bước này, trả lời thẳng.
+
+Mục tiêu: biến câu hỏi thô thành yêu cầu rõ ràng rồi mới thực thi - đỡ làm sai, đỡ hỏi đi hỏi lại.
+
+## Tự tạo năng lực (agent/skill/workflow/loop)
+
+Khi user muốn thêm năng lực cho Javis, dùng skill **`javis-builder`** (trong `.claude/skills/`) - nó có đủ mẫu file chuẩn + luật chống trùng + rào an toàn. Nguyên tắc cốt lõi: chọn loại nhỏ nhất đủ dùng, kiểm tra trùng trước khi tạo, loop mới luôn `enabled: false`+`suggest`, không tự tạo năng lực làm hành động tiền/đơn/đăng bài.
+
 ## Nguyên tắc phản hồi
 1. **Luôn dùng số liệu thật** từ MCP - không bịa, không giả định
 2. **So sánh kỳ trước** khi có thể (tuần/tháng trước)
