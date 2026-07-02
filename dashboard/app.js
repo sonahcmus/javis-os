@@ -158,6 +158,7 @@ function handleMessage(data) {
     if (data.engine) setEngineBadge(data.engine, data.model);   // sự thật engine+model của lượt này
     if (finalText.trim()) recordTurn("javis", finalText);   // KHÔNG lưu lượt rỗng (tránh khôi phục bong bóng trống)
     maybeAutoLearn();
+    notifySessions();   // sidebar lịch sử tự refresh (title/updated_at vừa đổi)
   } else if (data.type === "error") {
     hideToolBar(); appendJavisMessage("⚠ " + data.content); setProcessing(false);
     setOrbState("", "SẴN SÀNG");
@@ -233,7 +234,7 @@ function restoreSession() {
     if (t.role === "user") appendUserMessage(t.text, t.atts || []);
     else appendJavisMessage(t.text);
   });
-  if (convo.length) scrollBottom();
+  if (convo.length) scrollBottom(true);
   // Dựng lại số liệu kinh doanh (đánh dấu là của phiên trước)
   if (savedMetrics && (savedMetrics.cards || []).length) {
     renderMetrics(savedMetrics.cards, (savedMetrics.status || "") + " · phiên trước");
@@ -255,7 +256,8 @@ async function openStoredSession(id) {
     });
     savedSessionId = id;          // lượt gửi tiếp theo → server resume đúng phiên này
     persistSession();
-    scrollBottom();
+    scrollBottom(true);
+    notifySessions();
   } catch (e) {}
 }
 function newChat() {
@@ -264,8 +266,12 @@ function newChat() {
   chatArea.innerHTML = "";
   savedSessionId = null;
   persistSession();
+  notifySessions();
+  try { chatInput.focus(); } catch (e) {}
 }
-window.JavisSessions = { open: openStoredSession, new: newChat, brain: () => currentBrainPath() };
+window.JavisSessions = { open: openStoredSession, new: newChat, brain: () => currentBrainPath(), current: () => savedSessionId };
+// Báo các UI khác (sidebar Lịch sử trong chat workspace) biết phiên/danh sách vừa đổi
+function notifySessions() { try { window.dispatchEvent(new Event("javis:sessions-changed")); } catch (e) {} }
 
 function appendUserMessage(text, attachments) {
   const div = document.createElement("div");
@@ -278,21 +284,28 @@ function appendUserMessage(text, attachments) {
         : `<span class="file-tag">📝 ${escapeHtml(a.name)}</span>`
     ).join("") + `</div>`;
   }
-  const textHtml = text ? `<div>${escapeHtml(text)}</div>` : "";
+  // Tin dài (>10 dòng hoặc >900 ký tự) thu gọn lại, bấm "Xem thêm" để mở
+  const isLong = text && (text.split("\n").length > 10 || text.length > 900);
+  const textHtml = text
+    ? `<div class="utext${isLong ? " clamped" : ""}">${escapeHtml(text)}</div>` +
+      (isLong ? `<button class="clamp-more" type="button">Xem thêm</button>` : "")
+    : "";
   div.innerHTML = `<div class="bubble">${textHtml}${attHtml}</div>`;
-  chatArea.appendChild(div); scrollBottom();
+  chatAppend(div); scrollBottom(true);
 }
 function appendJavisMessage(text) {
   const div = document.createElement("div");
   div.className = "msg msg-javis";
-  div.innerHTML = `<div class="bubble">${markdownToHtml(text)}</div>`;
-  chatArea.appendChild(div); scrollBottom();
+  div.innerHTML = `<div class="bubble">${markdownToHtml(text)}</div>` +
+    `<button class="msg-copy" type="button" title="Copy cả tin nhắn">⧉</button>`;
+  chatAppend(div); scrollBottom();
 }
 function createStreamingBubble() {
   const div = document.createElement("div");
   div.className = "msg msg-javis";
-  div.innerHTML = `<div class="bubble"></div>`;
-  chatArea.appendChild(div); scrollBottom();
+  div.innerHTML = `<div class="bubble"></div>` +
+    `<button class="msg-copy" type="button" title="Copy cả tin nhắn">⧉</button>`;
+  chatAppend(div); scrollBottom();
   return div;
 }
 function markdownToHtml(text) {
@@ -300,7 +313,7 @@ function markdownToHtml(text) {
   // 1) Tách & giữ code block ```...``` ra placeholder để không bị xử lý nhầm
   const blocks = [];
   text = text.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, code) => {
-    blocks.push(`<pre class="code-block">${esc(code.replace(/\n$/, ""))}</pre>`);
+    blocks.push(`<div class="code-wrap"><button class="code-copy" type="button">⧉ Copy</button><pre class="code-block">${esc(code.replace(/\n$/, ""))}</pre></div>`);
     return ` B${blocks.length - 1} `;
   });
 
@@ -337,7 +350,66 @@ function escapeHtml(t) { return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").rep
 function showToolBar(t) { toolBar.style.display = "flex"; toolBarText.textContent = t; }
 function hideToolBar() { toolBar.style.display = "none"; }
 function setProcessing(s) { isProcessing = s; sendBtn.disabled = s; }
-function scrollBottom() { chatArea.scrollTop = chatArea.scrollHeight; }
+
+// ============================================
+// Cuộn thông minh: chỉ tự cuộn khi user đang ở đáy; đang đọc lại phía trên thì
+// KHÔNG giật xuống - hiện nút "↓ Tin mới" (sticky trong khung chat) để nhảy xuống.
+// Nút được chèn lazy khi có tin đầu tiên → .transcript:empty::after vẫn hoạt động.
+// ============================================
+let stickBottom = true;
+const newMsgBtn = document.createElement("button");
+newMsgBtn.id = "newMsgBtn"; newMsgBtn.type = "button"; newMsgBtn.textContent = "↓ Tin mới";
+newMsgBtn.addEventListener("click", () => scrollBottom(true));
+function chatAppend(el) {
+  if (newMsgBtn.parentNode !== chatArea) chatArea.appendChild(newMsgBtn);
+  chatArea.insertBefore(el, newMsgBtn);
+}
+chatArea.addEventListener("scroll", () => {
+  stickBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < 90;
+  if (stickBottom) newMsgBtn.classList.remove("show");
+});
+function scrollBottom(force) {
+  if (force) stickBottom = true;
+  if (stickBottom) { chatArea.scrollTop = chatArea.scrollHeight; newMsgBtn.classList.remove("show"); }
+  else if (newMsgBtn.parentNode) newMsgBtn.classList.add("show");
+}
+
+// ============================================
+// Copy code block / copy tin nhắn / xem thêm tin dài - event delegation
+// (bubble re-render liên tục khi stream nên KHÔNG gắn handler từng nút)
+// ============================================
+function copyFallback(s) {   // HTTP LAN/VPS chưa https, hoặc clipboard API bị chặn quyền
+  return new Promise((res) => {
+    const ta = document.createElement("textarea");
+    ta.value = s; ta.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    ta.remove(); res();
+  });
+}
+function copyText(s) {
+  if (navigator.clipboard && window.isSecureContext)
+    return navigator.clipboard.writeText(s).catch(() => copyFallback(s));
+  return copyFallback(s);
+}
+function flashCopied(btn, label) {
+  const old = btn.textContent;
+  btn.textContent = "✓ Đã copy";
+  setTimeout(() => { btn.textContent = label || old; }, 1200);
+}
+chatArea.addEventListener("click", (e) => {
+  const t = e.target;
+  if (t.classList.contains("code-copy")) {
+    const pre = t.parentElement && t.parentElement.querySelector("pre");
+    if (pre) copyText(pre.innerText).then(() => flashCopied(t, "⧉ Copy"));
+  } else if (t.classList.contains("msg-copy")) {
+    const b = t.closest(".msg") && t.closest(".msg").querySelector(".bubble");
+    if (b) copyText(b.innerText).then(() => flashCopied(t, "⧉"));
+  } else if (t.classList.contains("clamp-more")) {
+    const u = t.closest(".bubble") && t.closest(".bubble").querySelector(".utext");
+    if (u) { u.classList.toggle("clamped"); t.textContent = u.classList.contains("clamped") ? "Xem thêm" : "Thu gọn"; }
+  }
+});
 function updateSysStatus(s) {
   document.getElementById("claudeStatus").className = "mcp-item " + s;
   document.getElementById("ttsStatus").className = "mcp-item " + s;

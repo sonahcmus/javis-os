@@ -31,6 +31,9 @@ brain/Memory/
 # Dev artifact - clone Hermes để học (rất nặng, có .git riêng)
 .learn/
 
+# Cấu hình chạy dev preview cục bộ (đường dẫn theo máy, không thuộc sản phẩm)
+.claude/launch.json
+
 # Thư mục CHA chứa MỌI second brain (mô hình mới) - DỮ LIỆU CÁ NHÂN, không đẩy vào repo code.
 # Backup riêng lên git repo khác (xem comment bind-mount trong docker-compose.yml).
 brains/
