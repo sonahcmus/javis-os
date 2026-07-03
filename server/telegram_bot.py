@@ -44,6 +44,7 @@ BOT_COMMANDS = [
     {"command": "agents", "description": "Liệt kê agent + việc đang chạy"},
     {"command": "workflows", "description": "Liệt kê workflow"},
     {"command": "model", "description": "Xem hoặc đổi model"},
+    {"command": "brain", "description": "Xem hoặc đổi brain (vault) của phiên này"},
     {"command": "retry", "description": "Gửi lại câu hỏi gần nhất"},
     {"command": "stop", "description": "Dừng câu đang trả lời"},
     {"command": "reset", "description": "Bắt đầu hội thoại mới"},
@@ -112,8 +113,8 @@ class TelegramBot:
         self.chat_ids = parse_chat_ids(chat_id)
         self.answer_fn = answer_fn          # async (text, meta) -> str | {"text":..., "files":[...]}
         self.command_fn = command_fn        # async (cmd, arg, chat) -> dict|None
-        self.callback_fn = callback_fn      # async (data) -> dict|None (xử lý bấm nút inline)
-        self.download_dir = download_dir    # str | callable() -> str: nơi lưu file user gửi lên
+        self.callback_fn = callback_fn      # async (data, chat) -> dict|None (bấm nút inline; chat = ai bấm)
+        self.download_dir = download_dir    # str | callable(chat) -> str: nơi lưu file user gửi lên
         self._task = None
         # ĐA PHIÊN: mỗi chat_id có lượt trả lời RIÊNG → các tài khoản chạy song song,
         # cùng 1 tài khoản vẫn tuần tự (1 lượt/lúc). Map chat_id(str) -> asyncio.Task.
@@ -262,7 +263,9 @@ class TelegramBot:
             rr = await client.get(f"https://api.telegram.org/file/bot{self.token}/{fp}",
                                   timeout=httpx.Timeout(180.0))
             rr.raise_for_status()
-            ddir = self.download_dir() if callable(self.download_dir) else self.download_dir
+            # download_dir nhận chat_id → file rơi vào inbox của ĐÚNG brain phiên người gửi
+            chat = str((msg.get("chat") or {}).get("id", ""))
+            ddir = self.download_dir(chat) if callable(self.download_dir) else self.download_dir
             d = Path(ddir) if ddir else Path("telegram-inbox")
             d.mkdir(parents=True, exist_ok=True)
             safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(name)).strip() or "file"
@@ -409,7 +412,7 @@ class TelegramBot:
             except Exception:
                 pass
             return
-        res = await self.callback_fn(data) if self.callback_fn else None
+        res = await self.callback_fn(data, chat) if self.callback_fn else None
         # luôn answer để Telegram tắt vòng xoay; alert hiện toast nếu có
         try:
             await client.post(self._url("answerCallbackQuery"),

@@ -4,6 +4,12 @@ Lịch sử phiên bản Javis OS. Bản mới nhất ở trên cùng. Xem ngay 
 
 Định dạng: mỗi phiên bản là một khối `## [x.y.z] - ngày`, bên dưới nhóm thay đổi theo `### Thêm mới / Sửa lỗi / Cải thiện / Bảo mật`.
 
+## [0.8.12] - 2026-07-03
+### Thêm mới
+- Telegram có lệnh **`/brain`** - xem và đổi brain (vault) cho RIÊNG phiên của mình: gõ `/brain` mở bảng nút bấm chọn (brain đang dùng có dấu ✓), hoặc gõ thẳng tên `/brain <tên>` (khớp một phần cũng được). Đổi xong hội thoại tự reset để nạp đúng bộ nhớ/skill của brain mới; người khác dùng chung bot và dashboard KHÔNG bị ảnh hưởng. `/reset` giữ nguyên brain đã chọn.
+- File gửi lên Telegram giờ rơi vào `inbox/telegram` của brain PHIÊN người gửi (trước đây luôn vào brain mặc định).
+- `/status` hiển thị brain phiên đang dùng.
+
 ## [0.8.11] - 2026-07-03
 ### Thêm mới
 - Telegram **đa phiên theo tài khoản**: mỗi chat ID giờ có ngữ cảnh hội thoại RIÊNG, không còn lẫn lộn khi nhiều người dùng chung 1 bot. Trước đây tất cả người dùng dùng chung một session (người sau nối tiếp mạch của người trước, và chỉ 1 người được trả lời tại một thời điểm). Nay mỗi tài khoản có session Claude riêng (giữ `--resume` độc lập), lịch sử OpenRouter riêng, câu `/retry` riêng.

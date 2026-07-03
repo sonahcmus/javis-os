@@ -91,6 +91,7 @@ Gõ dấu `/` trong chat (hoặc bấm nút Menu của bot) sẽ hiện danh sá
 | `/agents` | Liệt kê agent và cho biết có lượt nào đang chạy không |
 | `/workflows` | Liệt kê workflow |
 | `/model` | Xem hoặc đổi model. Gõ `/model` không kèm gì để mở bảng nút bấm chọn; hoặc gõ thẳng tên (vd `/model sonnet`) |
+| `/brain` | Xem hoặc đổi brain (vault) cho RIÊNG phiên của bạn. Gõ `/brain` để mở bảng nút chọn; hoặc gõ thẳng tên (vd `/brain Kim Khí`). Đổi xong hội thoại reset để nạp đúng bộ nhớ brain mới; người khác và dashboard không bị ảnh hưởng. File bạn gửi lên cũng rơi vào inbox của brain đã chọn |
 | `/retry` | Gửi lại câu hỏi gần nhất |
 | `/stop` | Dừng ngay câu đang trả lời |
 | `/reset` | Bắt đầu hội thoại mới (quên ngữ cảnh cũ) |

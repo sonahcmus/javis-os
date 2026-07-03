@@ -3644,7 +3644,8 @@ _TG_BOT = None
 #   {"cli": ClaudeCLI|None,   # session Claude riêng (giữ session_id để --resume)
 #    "or":  list|None,        # lịch sử hội thoại engine OpenRouter/API
 #    "last": str|None,        # câu hỏi gần nhất của chat này (cho /retry)
-#    "sent": set}             # path đã gửi qua /telegram/send-file trong lượt (chống gửi trùng)
+#    "sent": set,             # path đã gửi qua /telegram/send-file trong lượt (chống gửi trùng)
+#    "brain": str|None}       # brain RIÊNG của phiên (path); None = brain mặc định (theo Settings)
 _TG_SESS = {}
 
 
@@ -3653,9 +3654,30 @@ def _tg_session(chat_id):
     key = str(chat_id or "default")
     s = _TG_SESS.get(key)
     if s is None:
-        s = {"cli": None, "or": None, "last": None, "sent": set()}
+        s = {"cli": None, "or": None, "last": None, "sent": set(), "brain": None}
         _TG_SESS[key] = s
     return s
+
+
+def _tg_brain(chat_id):
+    """Brain của phiên Telegram này: phiên đã /brain thì dùng brain đó (nếu folder còn),
+    chưa chọn thì rơi về brain mặc định (cấu hình loop/Settings) - hành vi cũ."""
+    sess = _TG_SESS.get(str(chat_id or "default")) or {}
+    b = sess.get("brain")
+    if b and os.path.isdir(b):
+        return b
+    return _read_loop_config().get("brain", "brain")
+
+
+def _tg_set_brain(chat_id, brain_path):
+    """Đổi brain cho 1 phiên Telegram + reset ngữ cảnh (brain khác = bộ nhớ/skill khác,
+    giữ mạch cũ sẽ trộn tri thức 2 vault)."""
+    sess = _tg_session(chat_id)
+    sess["brain"] = str(brain_path)
+    if sess.get("cli"):
+        sess["cli"].reset_session()
+    sess["or"] = None
+    sess["last"] = None
 
 
 def _tg_chat_busy(chat) -> bool:
@@ -3680,7 +3702,7 @@ async def _tg_answer(text, meta=None):
     sess = _tg_session(chat_id)
     sess["last"] = text
     sess["sent"] = set()    # lượt mới → reset dedupe (endpoint /telegram/send-file add vào đây)
-    brain = _read_loop_config().get("brain", "brain")
+    brain = _tg_brain(chat_id)   # brain riêng của phiên (đổi bằng /brain), mặc định theo Settings
     mcfg = cfgmod.read_settings().get("model", {})
     prov, kind, api_key, api_model = _chat_provider(mcfg)
     reasoning = _reasoning_level(mcfg)
@@ -3739,6 +3761,7 @@ async def _tg_help_text(brain):
         "/agents - liệt kê agent + việc đang chạy\n"
         "/workflows - liệt kê workflow\n"
         "/model - xem/đổi model (opus|sonnet|haiku|fable|<claude-id> hoặc <provider/id> cho OpenRouter)\n"
+        "/brain - xem/đổi brain (vault) cho riêng phiên của bạn (vd /brain hoặc /brain <tên>)\n"
         "/cli - engine Claude (có MCP/skill)\n"
         "/or - engine OpenRouter (chat thuần)\n"
         "/retry - gửi lại câu gần nhất\n"
@@ -3803,11 +3826,53 @@ def _model_header():
             "Chọn nhóm:")
 
 
-async def _tg_callback(data):
-    """Xử lý khi user bấm nút inline. Trả {'text','reply_markup','alert'} hoặc None."""
+# ---- Menu chọn brain cho PHIÊN Telegram (inline keyboard, giống menu model) ----
+def _tg_brain_header(chat_key):
+    cur = Path(_brain_root(_tg_brain(chat_key))).name
+    return ("🧠 Brain của phiên này: " + cur + "\n"
+            "Chọn brain khác (chỉ đổi cho phiên CỦA BẠN, người khác và dashboard không đổi):")
+
+
+def _tg_brain_kb(brains, chat_key):
+    try:
+        cur = str(Path(_brain_root(_tg_brain(chat_key))).resolve())
+    except Exception:
+        cur = ""
+    rows = []
+    for i, b in enumerate(brains[:20]):   # Telegram giới hạn nút; >20 brain thì gõ /brain <tên>
+        try:
+            mark = "✓ " if str(Path(b["path"]).resolve()) == cur else ""
+        except Exception:
+            mark = ""
+        rows.append([{"text": f"{mark}{b['name']} · {b.get('notes', 0)} note",
+                      "callback_data": f"bs:{i}"}])
+    rows.append([{"text": "✕ Đóng", "callback_data": "bx"}])
+    return {"inline_keyboard": rows}
+
+
+async def _tg_callback(data, chat=None):
+    """Xử lý khi user bấm nút inline. Trả {'text','reply_markup','alert'} hoặc None.
+    chat = chat_id người bấm → nút brain chỉ đổi cho PHIÊN của họ (model vẫn đổi toàn cục)."""
     data = data or ""
+    chat_key = str(chat or "default")
     if data == "mx":
         return {"text": "Đã đóng bảng chọn model.", "alert": "Đã đóng"}
+    # ---- nút chọn brain (bs:<idx> | bx) - tác động PHIÊN của người bấm ----
+    if data == "bx":
+        return {"text": "Đã đóng bảng chọn brain.", "alert": "Đã đóng"}
+    if data.startswith("bs:"):
+        try:
+            i = int(data.split(":", 1)[1])
+        except ValueError:
+            return {"alert": "Dữ liệu nút lỗi"}
+        d = await list_brains(); brains = d.get("brains") or []
+        if i < 0 or i >= len(brains):
+            return {"alert": "Danh sách brain đã đổi - gõ /brain lại"}
+        hit = brains[i]
+        _tg_set_brain(chat_key, hit["path"])
+        return {"text": f"🧠 Đã chuyển phiên này sang brain: {hit['name']}\n"
+                        "(hội thoại reset để nạp đúng bộ nhớ/skill của brain mới)",
+                "alert": "Đã đổi brain"}
     if data in ("mp:back", "model"):
         return {"text": _model_header(), "reply_markup": _model_provider_kb()}
     if data.startswith("mp:"):
@@ -3840,9 +3905,9 @@ async def _tg_callback(data):
 
 async def _tg_command(cmd, arg, chat=None):
     """Xử lý lệnh Telegram cho 1 chat. Trả {'reply':...} hoặc {'ask':...} hoặc None.
-    chat = chat_id của người gõ lệnh → reset/stop/retry chỉ tác động PHIÊN của họ."""
-    brain = _read_loop_config().get("brain", "brain")
+    chat = chat_id của người gõ lệnh → reset/stop/retry/brain chỉ tác động PHIÊN của họ."""
     chat_key = str(chat or "default")
+    brain = _tg_brain(chat_key)   # brain riêng của phiên (đổi bằng /brain)
     if cmd == "stop":
         # Chỉ giết subprocess Claude của CHÍNH chat này (tag telegram:<chat>), không đụng người khác.
         cancel_all(f"telegram:{chat_key}")
@@ -3873,9 +3938,11 @@ async def _tg_command(cmd, arg, chat=None):
     if cmd == "status":
         prov, model = _model_current()
         busy = _tg_chat_busy(chat_key)
+        bname = Path(_brain_root(brain)).name
         return {"reply": ("📊 Trạng thái Javis\n"
                           f"Provider: {prov}\n"
-                          f"Model: {model}\nVault: {brain}\n"
+                          f"Model: {model}\n"
+                          f"Brain: {bname} (đổi bằng /brain)\n"
                           f"Phiên: {chat_key} (ngữ cảnh riêng)\n"
                           f"Đang xử lý: {'có (gửi /stop để dừng)' if busy else 'rảnh'}")}
     if cmd == "model":
@@ -3909,6 +3976,23 @@ async def _tg_command(cmd, arg, chat=None):
         if not last:
             return {"reply": "Chưa có câu nào để gửi lại."}
         return {"ask": last}
+    if cmd in ("brain", "vault"):
+        d = await list_brains(); brains = d.get("brains") or []
+        if not brains:
+            return {"reply": "Chưa có brain nào (tạo trong dashboard, nút + cạnh dropdown brain)."}
+        a = arg.strip()
+        if a:
+            # match theo tên: khớp đúng trước, khớp một phần sau (không phân biệt hoa thường)
+            hit = (next((b for b in brains if b["name"].lower() == a.lower()), None)
+                   or next((b for b in brains if a.lower() in b["name"].lower()), None))
+            if not hit:
+                names = ", ".join(b["name"] for b in brains[:15])
+                return {"reply": f"⚠ Không thấy brain '{a}'. Có: {names}"}
+            _tg_set_brain(chat_key, hit["path"])
+            return {"reply": f"🧠 Đã chuyển phiên này sang brain: {hit['name']}\n"
+                             "(hội thoại reset để nạp đúng bộ nhớ/skill của brain mới)"}
+        # Không tham số → menu nút bấm chọn brain
+        return {"reply": _tg_brain_header(chat_key), "reply_markup": _tg_brain_kb(brains, chat_key)}
     # /<slug> khác → coi là gọi skill (cần CLI)
     if cfgmod.read_settings().get("model", {}).get("engine") == "openrouter":
         return {"reply": f"⚠ Skill cần engine Claude CLI. Gửi /cli để đổi, rồi /{cmd} lại."}
@@ -3917,9 +4001,10 @@ async def _tg_command(cmd, arg, chat=None):
     return {"ask": ask}
 
 
-def _tg_inbox_dir():
-    """Nơi lưu file user gửi lên Telegram - đặt trong brain đang chọn để agent đọc được ngay."""
-    root = _brain_root(_read_loop_config().get("brain", "brain"))
+def _tg_inbox_dir(chat=None):
+    """Nơi lưu file user gửi lên Telegram - đặt trong brain CỦA PHIÊN người gửi
+    (đổi bằng /brain; chưa đổi thì brain mặc định) để agent đọc được ngay."""
+    root = _brain_root(_tg_brain(chat))
     return str(Path(root) / "inbox" / "telegram")
 
 
